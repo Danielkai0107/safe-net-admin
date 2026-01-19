@@ -1,4 +1,4 @@
-import { Users, Bell } from 'lucide-react';
+import { Users, Bell, UserCircle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 interface Tab {
@@ -24,6 +24,12 @@ export const TabBar = () => {
       label: '警報管理',
       icon: <Bell className="w-5 h-5" />,
       path: '/alerts',
+    },
+    {
+      id: 'profile',
+      label: '個人檔案',
+      icon: <UserCircle className="w-5 h-5" />,
+      path: '/profile',
     },
   ];
 

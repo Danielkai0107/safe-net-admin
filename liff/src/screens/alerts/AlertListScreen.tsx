@@ -36,7 +36,19 @@ export const AlertListScreen = () => {
     const unsubscribe = alertService.subscribe(
       tenant.id,
       (data) => {
-        setAlerts(data);
+        // 排序：已解決的放最下面，其他按時間排序
+        const sortedAlerts = [...data].sort((a, b) => {
+          // 已解決的排在最後
+          if (a.status === 'RESOLVED' && b.status !== 'RESOLVED') return 1;
+          if (a.status !== 'RESOLVED' && b.status === 'RESOLVED') return -1;
+          
+          // 其他按時間排序（最新的在前）
+          const aTime = safeToDate(a.triggeredAt).getTime();
+          const bTime = safeToDate(b.triggeredAt).getTime();
+          return bTime - aTime;
+        });
+        
+        setAlerts(sortedAlerts);
         setLoading(false);
       },
       statusParam
@@ -126,57 +138,78 @@ export const AlertListScreen = () => {
         </div>
       ) : (
         <div className="space-y-3">
-          {alerts.map((alert) => (
-            <div
-              key={alert.id}
-              onClick={() => navigate(`/alerts/${alert.id}`)}
-              className={`rounded-lg shadow p-4 border-2 cursor-pointer hover:shadow-md transition-shadow ${getSeverityColor(alert.severity)}`}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center space-x-2">
-                  <AlertTriangle className="w-5 h-5" />
-                  <h3 className="font-semibold">{alert.title}</h3>
+          {alerts.map((alert) => {
+            // 判斷是否為未分配（PENDING 且尚未分配）
+            const isPendingUnassigned = alert.status === 'PENDING' && !alert.assignedTo;
+            // 判斷是否已解決
+            const isResolved = alert.status === 'RESOLVED';
+            
+            return (
+              <div
+                key={alert.id}
+                onClick={() => navigate(`/alerts/${alert.id}`)}
+                className={`rounded-lg p-4 cursor-pointer transition-all ${
+                  isPendingUnassigned
+                    ? `shadow border-2 ${getSeverityColor(alert.severity)} hover:shadow-md`
+                    : `bg-white hover:shadow-sm ${isResolved ? 'opacity-60' : ''}`
+                }`}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className={`w-5 h-5 ${
+                      isPendingUnassigned ? '' : 'text-gray-400'
+                    }`} />
+                    <h3 className={`font-semibold ${
+                      isPendingUnassigned ? '' : 'text-gray-900'
+                    }`}>{alert.title}</h3>
+                  </div>
+                  {getStatusBadge(alert.status)}
                 </div>
-                {getStatusBadge(alert.status)}
-              </div>
 
-              <p className="text-sm mb-2">{alert.message}</p>
+                <p className={`text-sm mb-2 ${
+                  isPendingUnassigned ? '' : 'text-gray-700'
+                }`}>{alert.message}</p>
 
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center space-x-2 text-gray-700">
-                  <User className="w-3 h-3" />
-                  <span>{alert.elder?.name}</span>
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <div className="flex items-center space-x-2 text-gray-700">
+                    <User className="w-3 h-3" />
+                    <span>{alert.elder?.name}</span>
+                  </div>
+                  <div className="flex items-center space-x-1 text-gray-600">
+                    <Clock className="w-3 h-3" />
+                    <span>
+                      {formatDistanceToNow(safeToDate(alert.triggeredAt), {
+                        addSuffix: true,
+                        locale: zhTW,
+                      })}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center space-x-1 text-gray-600">
-                  <Clock className="w-3 h-3" />
-                  <span>
-                    {formatDistanceToNow(safeToDate(alert.triggeredAt), {
-                      addSuffix: true,
-                      locale: zhTW,
-                    })}
+
+                {/* 分配狀態顯示 */}
+                {alert.assignedTo && (
+                  <div className="mb-2">
+                    <span className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded">
+                      {alert.assignmentStatus === 'PENDING' && '已分配，等待回應'}
+                      {alert.assignmentStatus === 'ACCEPTED' && '已接受處理'}
+                      {alert.assignmentStatus === 'DECLINED' && '已拒絕'}
+                      {alert.assignedMember && ` - ${alert.assignedMember.name}`}
+                    </span>
+                  </div>
+                )}
+
+                <div>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    isPendingUnassigned 
+                      ? 'bg-white/50' 
+                      : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {getTypeLabel(alert.type)}
                   </span>
                 </div>
               </div>
-
-              {/* 分配狀態顯示 */}
-              {alert.assignedTo && (
-                <div className="mt-2 pt-2 border-t border-current/20">
-                  <p className="text-xs">
-                    {alert.assignmentStatus === 'PENDING' && '已分配，等待回應'}
-                    {alert.assignmentStatus === 'ACCEPTED' && '已接受處理'}
-                    {alert.assignmentStatus === 'DECLINED' && '已拒絕'}
-                    {alert.assignedMember && ` - ${alert.assignedMember.name}`}
-                  </p>
-                </div>
-              )}
-
-              <div className="mt-2">
-                <span className="text-xs px-2 py-1 bg-white/50 rounded">
-                  {getTypeLabel(alert.type)}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

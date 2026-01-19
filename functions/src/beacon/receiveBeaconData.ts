@@ -1,10 +1,19 @@
 import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
+import { defineString } from 'firebase-functions/params';
 import { Client, FlexMessage } from '@line/bot-sdk';
 
 // Constants
 const COOLDOWN_PERIOD_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
-const ENABLE_LOCATION_UPDATE_NOTIFICATION = process.env.ENABLE_LOCATION_UPDATE_NOTIFICATION === 'true'; // 控制位置更新通知開關（邊界警報不受影響）
+
+// Define environment parameter for location update notification
+const enableLocationNotification = defineString(
+  'ENABLE_LOCATION_UPDATE_NOTIFICATION',
+  {
+    default: 'false',
+    description: '是否啟用位置更新通知（邊界警報和首次活動不受影響）',
+  }
+);
 
 // Type definitions
 interface BeaconData {
@@ -296,7 +305,8 @@ async function sendLineNotification(
 
     // Check if location update notification is enabled
     // Boundary alerts and first activity ALWAYS send, only subsequent updates can be disabled
-    if (gateway.type !== 'BOUNDARY' && !isFirstActivity && !ENABLE_LOCATION_UPDATE_NOTIFICATION) {
+    const notificationEnabled = enableLocationNotification.value() === 'true';
+    if (gateway.type !== 'BOUNDARY' && !isFirstActivity && !notificationEnabled) {
       console.log(`Location update notification disabled, skipping notification for ${gateway.type} gateway`);
       return;
     }
@@ -338,10 +348,10 @@ async function sendLineNotification(
               text: headerText,
               weight: 'bold',
               size: 'lg',
-              color: '#FFFFFF',
+              color: '#111111',
             },
           ],
-          backgroundColor: gateway.type === 'BOUNDARY' ? '#DC2626' : '#2563EB',
+          backgroundColor: '#FFFFFF',
         },
         body: {
           type: 'box',

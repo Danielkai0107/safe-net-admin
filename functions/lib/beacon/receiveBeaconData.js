@@ -36,10 +36,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.receiveBeaconData = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const params_1 = require("firebase-functions/params");
 const bot_sdk_1 = require("@line/bot-sdk");
 // Constants
 const COOLDOWN_PERIOD_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
-const ENABLE_LOCATION_UPDATE_NOTIFICATION = process.env.ENABLE_LOCATION_UPDATE_NOTIFICATION === 'true'; // 控制位置更新通知開關（邊界警報不受影響）
+// Define environment parameter for location update notification
+const enableLocationNotification = (0, params_1.defineString)('ENABLE_LOCATION_UPDATE_NOTIFICATION', {
+    default: 'false',
+    description: '是否啟用位置更新通知（邊界警報和首次活動不受影響）',
+});
 /**
  * Log error to Firestore error_logs collection
  */
@@ -234,7 +239,8 @@ async function sendLineNotification(beacon, gateway, lat, lng, db, isFirstActivi
         }
         // Check if location update notification is enabled
         // Boundary alerts and first activity ALWAYS send, only subsequent updates can be disabled
-        if (gateway.type !== 'BOUNDARY' && !isFirstActivity && !ENABLE_LOCATION_UPDATE_NOTIFICATION) {
+        const notificationEnabled = enableLocationNotification.value() === 'true';
+        if (gateway.type !== 'BOUNDARY' && !isFirstActivity && !notificationEnabled) {
             console.log(`Location update notification disabled, skipping notification for ${gateway.type} gateway`);
             return;
         }
@@ -273,10 +279,10 @@ async function sendLineNotification(beacon, gateway, lat, lng, db, isFirstActivi
                             text: headerText,
                             weight: 'bold',
                             size: 'lg',
-                            color: '#FFFFFF',
+                            color: '#111111',
                         },
                     ],
-                    backgroundColor: gateway.type === 'BOUNDARY' ? '#DC2626' : '#2563EB',
+                    backgroundColor: '#FFFFFF',
                 },
                 body: {
                     type: 'box',

@@ -36,12 +36,10 @@ export const sendAlertAssignment = async (
             text: '警報分配通知',
             weight: 'bold',
             size: 'lg',
-            color: '#FFFFFF',
+            color: '#111111',
           },
         ],
-        backgroundColor: alertData.severity === 'CRITICAL' ? '#DC2626' : 
-                         alertData.severity === 'HIGH' ? '#EA580C' : 
-                         alertData.severity === 'MEDIUM' ? '#D97706' : '#2563EB',
+        backgroundColor: '#FFFFFF',
       },
       body: {
         type: 'box',
