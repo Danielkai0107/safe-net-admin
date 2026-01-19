@@ -106,25 +106,56 @@ export const alertService = {
   // 獲取社區成員列表（用於分配）
   getTenantMembers: async (tenantId: string) => {
     try {
+      console.log('Getting members for tenant:', tenantId);
+      
       const membersQuery = query(
         collection(db, 'tenants', tenantId, 'members'),
         where('status', '==', 'APPROVED')
       );
       
       const membersSnap = await getDocs(membersQuery);
-      const members = membersSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      console.log('Found members count:', membersSnap.docs.length);
+      
+      // 載入每個成員的 appUser 資料
+      const membersWithUsers = await Promise.all(
+        membersSnap.docs.map(async (doc) => {
+          const memberData = doc.data();
+          console.log('Member data:', memberData);
+          
+          // 獲取對應的 appUser 資料
+          if (memberData.appUserId) {
+            try {
+              const appUserDoc = await getDocument('appUsers', memberData.appUserId);
+              return {
+                id: doc.id,
+                ...memberData,
+                appUser: appUserDoc,
+              };
+            } catch (error) {
+              console.error('Failed to get appUser:', memberData.appUserId, error);
+              return {
+                id: doc.id,
+                ...memberData,
+              };
+            }
+          }
+          
+          return {
+            id: doc.id,
+            ...memberData,
+          };
+        })
+      );
 
       // 在記憶體中排序
-      members.sort((a: any, b: any) => {
+      membersWithUsers.sort((a: any, b: any) => {
         const timeA = a.createdAt?.seconds || 0;
         const timeB = b.createdAt?.seconds || 0;
         return timeB - timeA;
       });
 
-      return { data: members };
+      console.log('Returning members with users:', membersWithUsers);
+      return { data: membersWithUsers };
     } catch (error) {
       console.error('Failed to get tenant members:', error);
       throw error;

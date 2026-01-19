@@ -4,6 +4,7 @@ import { Client, FlexMessage } from '@line/bot-sdk';
 
 // Constants
 const COOLDOWN_PERIOD_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+const ENABLE_LOCATION_UPDATE_NOTIFICATION = process.env.ENABLE_LOCATION_UPDATE_NOTIFICATION === 'true'; // 控制位置更新通知開關（邊界警報不受影響）
 
 // Type definitions
 interface BeaconData {
@@ -212,7 +213,8 @@ async function sendLineNotification(
   gateway: GatewayInfo,
   lat: number,
   lng: number,
-  db: admin.firestore.Firestore
+  db: admin.firestore.Firestore,
+  isFirstActivity: boolean = false
 ): Promise<void> {
   try {
     // 1. Find device by UUID
@@ -292,15 +294,39 @@ async function sendLineNotification(
       return;
     }
 
+    // Check if location update notification is enabled
+    // Boundary alerts and first activity ALWAYS send, only subsequent updates can be disabled
+    if (gateway.type !== 'BOUNDARY' && !isFirstActivity && !ENABLE_LOCATION_UPDATE_NOTIFICATION) {
+      console.log(`Location update notification disabled, skipping notification for ${gateway.type} gateway`);
+      return;
+    }
+
     // 6. Create LINE client and send message
     const client = new Client({ channelAccessToken });
 
     const gatewayTypeText = gateway.type === 'BOUNDARY' ? '邊界點' : 
                            gateway.type === 'MOBILE' ? '移動接收器' : '一般接收器';
 
+    // Determine notification text based on gateway type and first activity
+    let headerText = '';
+    let bodyText = '';
+    
+    if (gateway.type === 'BOUNDARY') {
+      headerText = '邊界警報';
+      bodyText = `${elder?.name || '長輩'} 出現在邊界點`;
+    } else {
+      if (isFirstActivity) {
+        headerText = '今日首次活動';
+        bodyText = `${elder?.name || '長輩'} 今日首次偵測到活動`;
+      } else {
+        headerText = '位置更新';
+        bodyText = `${elder?.name || '長輩'} 位置已更新`;
+      }
+    }
+
     const flexMessage: FlexMessage = {
       type: 'flex',
-      altText: `${elder?.name || '長輩'} 位置更新通知`,
+      altText: `${elder?.name || '長輩'} ${headerText}通知`,
       contents: {
         type: 'bubble',
         header: {
@@ -309,7 +335,7 @@ async function sendLineNotification(
           contents: [
             {
               type: 'text',
-              text: gateway.type === 'BOUNDARY' ? '⚠️ 邊界警報' : '📍 位置更新',
+              text: headerText,
               weight: 'bold',
               size: 'lg',
               color: '#FFFFFF',
@@ -323,9 +349,7 @@ async function sendLineNotification(
           contents: [
             {
               type: 'text',
-              text: gateway.type === 'BOUNDARY' 
-                ? `${elder?.name || '長輩'} 出現在邊界點`
-                : `${elder?.name || '長輩'} 位置已更新`,
+              text: bodyText,
               weight: 'bold',
               size: 'md',
               wrap: true,
@@ -652,8 +676,8 @@ async function processBeacon(
         await createBoundaryAlert(beacon, gateway, lat, lng, db);
       }
 
-      // Send LINE notification to members
-      await sendLineNotification(beacon, gateway, lat, lng, db);
+      // Send LINE notification to members (first activity of the day)
+      await sendLineNotification(beacon, gateway, lat, lng, db, true);
 
       return { status: 'created', beaconId: docId };
     }
@@ -689,7 +713,7 @@ async function processBeacon(
       }
 
       // Send LINE notification to members
-      await sendLineNotification(beacon, gateway, lat, lng, db);
+      await sendLineNotification(beacon, gateway, lat, lng, db, false);
 
       return { status: 'updated', beaconId: docId };
     }
@@ -697,9 +721,14 @@ async function processBeacon(
     // Calculate time difference
     const lastSeenMillis = data.last_seen.toMillis();
     const timeDiff = timestamp - lastSeenMillis;
+    const lastGatewayId = data.gateway_id;
 
-    // Check if cooldown period has passed
-    if (timeDiff >= COOLDOWN_PERIOD_MS) {
+    // Check if this is a different gateway (elder moved to new location)
+    const isDifferentGateway = lastGatewayId !== gateway.id;
+
+    // If different gateway, always update (elder moved)
+    // If same gateway, check cooldown period
+    if (isDifferentGateway || timeDiff >= COOLDOWN_PERIOD_MS) {
       // Update main document (latest location)
       await docRef.set(locationData);
 
@@ -720,21 +749,25 @@ async function processBeacon(
         minor: beacon.minor,
       });
 
-      console.log(`Updated location for elder ${docId} at ${gateway.type} gateway (time diff: ${Math.floor(timeDiff / 1000)}s)`);
+      const reason = isDifferentGateway 
+        ? `moved to different gateway (${lastGatewayId} → ${gateway.id})` 
+        : `cooldown passed (time diff: ${Math.floor(timeDiff / 1000)}s)`;
+      
+      console.log(`Updated location for elder ${docId} at ${gateway.type} gateway (${reason})`);
 
       // Create alert if BOUNDARY gateway
       if (gateway.type === 'BOUNDARY') {
         await createBoundaryAlert(beacon, gateway, lat, lng, db);
       }
 
-      // Send LINE notification to members
-      await sendLineNotification(beacon, gateway, lat, lng, db);
+      // Send LINE notification to members (subsequent location update)
+      await sendLineNotification(beacon, gateway, lat, lng, db, false);
 
       return { status: 'updated', beaconId: docId };
     }
 
-    // Within cooldown period, ignore
-    console.log(`Ignored elder ${docId} (cooldown active, time diff: ${Math.floor(timeDiff / 1000)}s)`);
+    // Within cooldown period at same gateway, ignore
+    console.log(`Ignored elder ${docId} (same gateway within cooldown, time diff: ${Math.floor(timeDiff / 1000)}s)`);
     return { status: 'ignored', beaconId: docId };
 
   } catch (error) {

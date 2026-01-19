@@ -133,12 +133,42 @@ const sendAlertAssignment = async (lineUserId, channelAccessToken, alertData) =>
                 spacing: 'sm',
                 contents: [
                     {
+                        type: 'box',
+                        layout: 'horizontal',
+                        spacing: 'sm',
+                        contents: [
+                            {
+                                type: 'button',
+                                style: 'primary',
+                                color: '#22C55E',
+                                action: {
+                                    type: 'postback',
+                                    label: '✓ 接受',
+                                    data: `action=accept&alertId=${alertData.id}`,
+                                    displayText: '我接受處理這個警報',
+                                },
+                            },
+                            {
+                                type: 'button',
+                                style: 'secondary',
+                                action: {
+                                    type: 'postback',
+                                    label: '✗ 拒絕',
+                                    data: `action=decline&alertId=${alertData.id}`,
+                                    displayText: '我無法處理這個警報',
+                                },
+                            },
+                        ],
+                    },
+                    {
                         type: 'button',
-                        style: 'primary',
+                        style: 'link',
                         action: {
                             type: 'uri',
-                            label: '查看詳情',
-                            uri: `https://liff.line.me/${process.env.LIFF_ID}/alerts/${alertData.id}`,
+                            label: alertData.latitude && alertData.longitude ? '📍 查看地圖位置' : '查看詳情',
+                            uri: alertData.latitude && alertData.longitude
+                                ? `https://www.google.com/maps?q=${alertData.latitude},${alertData.longitude}`
+                                : `https://liff.line.me/${process.env.LIFF_ID}/alerts/${alertData.id}`,
                         },
                     },
                     {

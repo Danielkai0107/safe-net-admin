@@ -12,7 +12,7 @@ import type { Alert, TenantMember } from '../../types';
 export const AlertDetailScreen = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isAdmin, profile } = useAuth();
+  const { isAdmin, appUserId } = useAuth();
   const tenant = useTenantStore(state => state.selectedTenant);
   const [alert, setAlert] = useState<Alert | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +20,7 @@ export const AlertDetailScreen = () => {
   const [members, setMembers] = useState<TenantMember[]>([]);
   const [selectedMember, setSelectedMember] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [completing, setCompleting] = useState(false);
 
   // 安全的時間轉換函數
   const safeToDate = (timestamp: any): Date => {
@@ -68,14 +69,15 @@ export const AlertDetailScreen = () => {
   };
 
   const handleAssign = async () => {
-    if (!selectedMember || !alert || !profile) {
+    if (!selectedMember || !alert || !appUserId) {
       window.alert('請選擇成員');
       return;
     }
 
     setAssigning(true);
     try {
-      await lineService.assignAlert(alert.id, selectedMember, profile.userId);
+      console.log('Assigning alert with:', { alertId: alert.id, assignedTo: selectedMember, assignedBy: appUserId });
+      await lineService.assignAlert(alert.id, selectedMember, appUserId);
       window.alert('分配成功！已發送通知給該成員');
       setShowAssignModal(false);
       
@@ -91,17 +93,38 @@ export const AlertDetailScreen = () => {
   };
 
   const handleResolve = async () => {
-    if (!alert || !profile) return;
+    if (!alert || !appUserId) return;
     
     if (!window.confirm('確定要標記此警報為已解決嗎？')) return;
 
     try {
-      await alertService.resolve(alert.id, profile.userId, '已在 LIFF 中處理');
+      await alertService.resolve(alert.id, appUserId, '已在 LIFF 中處理');
       window.alert('警報已解決');
       navigate('/alerts');
     } catch (error: any) {
       console.error('Failed to resolve alert:', error);
       window.alert('操作失敗：' + (error.message || '未知錯誤'));
+    }
+  };
+
+  const handleComplete = async () => {
+    if (!alert || !appUserId) return;
+    
+    if (!window.confirm('確定要標記此警報為已完成嗎？')) return;
+
+    setCompleting(true);
+    try {
+      await lineService.completeAlert(alert.id, appUserId, '已完成處理');
+      window.alert('警報已標記為完成！');
+      
+      // 重新載入警報資料
+      const response = await alertService.getOne(alert.id);
+      setAlert(response.data);
+    } catch (error: any) {
+      console.error('Failed to complete alert:', error);
+      window.alert('操作失敗：' + (error.message || '未知錯誤'));
+    } finally {
+      setCompleting(false);
     }
   };
 
@@ -247,7 +270,7 @@ export const AlertDetailScreen = () => {
           // 未分配
           <div className="text-center py-4">
             <p className="text-sm text-gray-500 mb-3">尚未分配處理人員</p>
-            {isAdmin && (
+            {isAdmin && alert.status !== 'RESOLVED' && (
               <button
                 onClick={handleShowAssignModal}
                 className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 mx-auto"
@@ -290,7 +313,7 @@ export const AlertDetailScreen = () => {
                 </span>
               )}
             </div>
-            {alert.assignmentStatus === 'DECLINED' && isAdmin && (
+            {(alert.assignmentStatus === 'DECLINED' || alert.assignmentStatus === 'PENDING') && isAdmin && alert.status !== 'RESOLVED' && (
               <button
                 onClick={handleShowAssignModal}
                 className="w-full mt-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
@@ -303,13 +326,30 @@ export const AlertDetailScreen = () => {
       </div>
 
       {/* 操作按鈕 */}
-      {alert.status === 'PENDING' && (
-        <button
-          onClick={handleResolve}
-          className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-        >
-          標記為已解決
-        </button>
+      {alert.status !== 'RESOLVED' && (
+        <div className="space-y-3">
+          {/* 成員完成按鈕 */}
+          {alert.assignmentStatus === 'ACCEPTED' && 
+           alert.assignedTo === appUserId && (
+            <button
+              onClick={handleComplete}
+              disabled={completing}
+              className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {completing ? '處理中...' : '標記已完成'}
+            </button>
+          )}
+          
+          {/* 管理員直接解決按鈕 */}
+          {(alert.status === 'PENDING' || alert.status === 'NOTIFIED') && isAdmin && (
+            <button
+              onClick={handleResolve}
+              className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            >
+              標記為已解決
+            </button>
+          )}
+        </div>
       )}
 
       {/* 分配成員彈窗 */}

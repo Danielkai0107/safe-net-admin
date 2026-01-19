@@ -37,6 +37,7 @@ exports.lineWebhook = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const bot_sdk_1 = require("@line/bot-sdk");
+const sendMessage_1 = require("./sendMessage");
 const config = {
     channelSecret: process.env.LINE_CHANNEL_SECRET || '',
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
@@ -91,6 +92,10 @@ exports.lineWebhook = functions.https.onRequest(async (req, res) => {
             // 處理用戶取消好友（Unfollow）事件
             if (event.type === 'unfollow') {
                 await handleUnfollow(event);
+            }
+            // 處理 Postback 事件（接受/拒絕警報）
+            if (event.type === 'postback') {
+                await handlePostback(event, matchedTenant);
             }
         }));
         res.json({ success: true });
@@ -239,6 +244,136 @@ async function handleUnfollow(event) {
     }
     catch (error) {
         console.error('Error handling unfollow event:', error);
+    }
+}
+// 處理 Postback 事件（接受/拒絕警報）
+async function handlePostback(event, matchedTenant) {
+    const lineUserId = event.source.userId;
+    if (!lineUserId)
+        return;
+    const db = admin.firestore();
+    const postbackData = event.postback.data;
+    try {
+        // 解析 postback data
+        const params = new URLSearchParams(postbackData);
+        const action = params.get('action');
+        const alertId = params.get('alertId');
+        if (!action || !alertId) {
+            console.error('Invalid postback data:', postbackData);
+            return;
+        }
+        console.log('Postback received:', { action, alertId, lineUserId });
+        // 找到對應的 appUser
+        const appUserQuery = await db
+            .collection('appUsers')
+            .where('lineUserId', '==', lineUserId)
+            .limit(1)
+            .get();
+        if (appUserQuery.empty) {
+            console.error('AppUser not found for LINE user:', lineUserId);
+            return;
+        }
+        const appUserId = appUserQuery.docs[0].id;
+        const appUserData = appUserQuery.docs[0].data();
+        // 獲取警報資料
+        const alertDoc = await db.collection('alerts').doc(alertId).get();
+        if (!alertDoc.exists) {
+            console.error('Alert not found:', alertId);
+            return;
+        }
+        const alertData = alertDoc.data();
+        const tenantId = alertData === null || alertData === void 0 ? void 0 : alertData.tenantId;
+        // 確定使用的 Channel Access Token
+        const channelAccessToken = (matchedTenant === null || matchedTenant === void 0 ? void 0 : matchedTenant.channelAccessToken) || config.channelAccessToken;
+        // 檢查是否為被分配者
+        if ((alertData === null || alertData === void 0 ? void 0 : alertData.assignedTo) !== appUserId) {
+            console.log('User is not the assigned person:', { assignedTo: alertData === null || alertData === void 0 ? void 0 : alertData.assignedTo, appUserId });
+            if (channelAccessToken) {
+                await (0, sendMessage_1.sendNotification)(lineUserId, channelAccessToken, '⚠️ 此警報未分配給您，無法操作。');
+            }
+            return;
+        }
+        // 檢查警報是否已經被處理過（防止重複點擊）
+        if ((alertData === null || alertData === void 0 ? void 0 : alertData.assignmentStatus) !== 'PENDING') {
+            console.log('Alert already processed:', { alertId, status: alertData === null || alertData === void 0 ? void 0 : alertData.assignmentStatus });
+            const statusMessages = {
+                'ACCEPTED': '✅ 此警報您已經接受過了',
+                'DECLINED': '❌ 此警報您已經拒絕過了',
+            };
+            if (channelAccessToken) {
+                await (0, sendMessage_1.sendNotification)(lineUserId, channelAccessToken, statusMessages[(alertData === null || alertData === void 0 ? void 0 : alertData.assignmentStatus) || ''] || '⚠️ 此警報已被處理，無法再次操作。');
+            }
+            return;
+        }
+        if (action === 'accept') {
+            // 接受警報
+            await db.collection('alerts').doc(alertId).update({
+                assignmentStatus: 'ACCEPTED',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log(`Alert ${alertId} accepted by ${appUserId}`);
+            // 發送確認訊息給用戶
+            if (channelAccessToken) {
+                await (0, sendMessage_1.sendNotification)(lineUserId, channelAccessToken, `✅ 已接受警報處理\n\n您已接受處理警報「${alertData === null || alertData === void 0 ? void 0 : alertData.title}」\n\n完成處理後，請到警報詳情頁面標記為已完成。`);
+            }
+            // 通知管理員
+            if (tenantId) {
+                await notifyAdmins(db, tenantId, channelAccessToken, {
+                    message: `${appUserData.name || '成員'} 已接受處理警報「${alertData === null || alertData === void 0 ? void 0 : alertData.title}」`,
+                    alertId,
+                });
+            }
+        }
+        else if (action === 'decline') {
+            // 拒絕警報
+            await db.collection('alerts').doc(alertId).update({
+                assignmentStatus: 'DECLINED',
+                declineReason: '成員在 LINE 中拒絕',
+                status: 'PENDING',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log(`Alert ${alertId} declined by ${appUserId}`);
+            // 發送確認訊息給用戶
+            if (channelAccessToken) {
+                await (0, sendMessage_1.sendNotification)(lineUserId, channelAccessToken, `❌ 已拒絕警報處理\n\n您已拒絕處理警報「${alertData === null || alertData === void 0 ? void 0 : alertData.title}」\n\n管理員將重新分配給其他成員。`);
+            }
+            // 通知管理員重新分配
+            if (tenantId) {
+                await notifyAdmins(db, tenantId, channelAccessToken, {
+                    message: `${appUserData.name || '成員'} 拒絕處理警報「${alertData === null || alertData === void 0 ? void 0 : alertData.title}」\n\n請重新分配處理人員。`,
+                    alertId,
+                });
+            }
+        }
+    }
+    catch (error) {
+        console.error('Error handling postback event:', error);
+    }
+}
+// 通知管理員的輔助函數
+async function notifyAdmins(db, tenantId, channelAccessToken, data) {
+    try {
+        // 獲取所有管理員
+        const adminsQuery = await db
+            .collection('tenants')
+            .doc(tenantId)
+            .collection('members')
+            .where('role', '==', 'ADMIN')
+            .where('status', '==', 'APPROVED')
+            .get();
+        // 通知所有管理員
+        const notifications = adminsQuery.docs.map(async (doc) => {
+            const adminData = doc.data();
+            const adminUserDoc = await db.collection('appUsers').doc(adminData.appUserId).get();
+            const adminUser = adminUserDoc.data();
+            if ((adminUser === null || adminUser === void 0 ? void 0 : adminUser.lineUserId) && channelAccessToken) {
+                await (0, sendMessage_1.sendNotification)(adminUser.lineUserId, channelAccessToken, data.message);
+            }
+        });
+        await Promise.all(notifications);
+    }
+    catch (error) {
+        console.error('Error notifying admins:', error);
     }
 }
 //# sourceMappingURL=webhook.js.map

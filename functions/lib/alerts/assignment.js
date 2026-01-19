@@ -53,15 +53,21 @@ exports.assignAlert = functions.https.onCall(async (data, context) => {
         const alert = Object.assign({ id: alertDoc.id }, alertData);
         const tenantId = alert.tenantId;
         // 2. 驗證分配者是管理員
+        console.log('Checking if assignedBy is admin:', assignedBy, 'in tenant:', tenantId);
         const assignerMemberQuery = await db
             .collection('tenants').doc(tenantId)
             .collection('members')
             .where('appUserId', '==', assignedBy)
-            .where('role', '==', 'ADMIN')
             .where('status', '==', 'APPROVED')
             .limit(1)
             .get();
+        console.log('Found assigner members:', assignerMemberQuery.size);
         if (assignerMemberQuery.empty) {
+            throw new functions.https.HttpsError('permission-denied', '找不到您的成員資料');
+        }
+        const assignerMember = assignerMemberQuery.docs[0].data();
+        console.log('Assigner member data:', assignerMember);
+        if (assignerMember.role !== 'ADMIN') {
             throw new functions.https.HttpsError('permission-denied', '只有管理員可以分配警報');
         }
         // 3. 獲取被分配成員資料
@@ -110,6 +116,8 @@ exports.assignAlert = functions.https.onCall(async (data, context) => {
             elderName: (elder === null || elder === void 0 ? void 0 : elder.name) || '未知',
             elderPhone: elder === null || elder === void 0 ? void 0 : elder.phone,
             triggeredAt: alert.triggeredAt,
+            latitude: alert.latitude,
+            longitude: alert.longitude,
         });
         return {
             success: true,

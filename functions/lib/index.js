@@ -33,13 +33,17 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.receiveBeaconData = exports.getTenantFollowers = exports.verifyUserTenant = exports.lineWebhook = exports.declineAlertAssignment = exports.acceptAlertAssignment = exports.assignAlert = void 0;
+exports.receiveBeaconData = exports.getTenantFollowers = exports.verifyUserTenant = exports.lineWebhook = exports.checkInactiveElders = exports.completeAlert = exports.declineAlertAssignment = exports.acceptAlertAssignment = exports.assignAlert = void 0;
 const admin = __importStar(require("firebase-admin"));
 const assignment_1 = require("./alerts/assignment");
 Object.defineProperty(exports, "assignAlert", { enumerable: true, get: function () { return assignment_1.assignAlert; } });
 const response_1 = require("./alerts/response");
 Object.defineProperty(exports, "acceptAlertAssignment", { enumerable: true, get: function () { return response_1.acceptAlertAssignment; } });
 Object.defineProperty(exports, "declineAlertAssignment", { enumerable: true, get: function () { return response_1.declineAlertAssignment; } });
+const completion_1 = require("./alerts/completion");
+Object.defineProperty(exports, "completeAlert", { enumerable: true, get: function () { return completion_1.completeAlert; } });
+const inactiveAlert_1 = require("./alerts/inactiveAlert");
+Object.defineProperty(exports, "checkInactiveElders", { enumerable: true, get: function () { return inactiveAlert_1.checkInactiveElders; } });
 const webhook_1 = require("./line/webhook");
 Object.defineProperty(exports, "lineWebhook", { enumerable: true, get: function () { return webhook_1.lineWebhook; } });
 const verifyUserTenant_1 = require("./line/verifyUserTenant");

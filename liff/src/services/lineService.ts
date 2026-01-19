@@ -48,4 +48,20 @@ export const lineService = {
       throw error;
     }
   },
+
+  // 標記警報已完成
+  completeAlert: async (alertId: string, memberId: string, resolution?: string) => {
+    try {
+      const completeFn = httpsCallable(functions, 'completeAlert');
+      const result = await completeFn({
+        alertId,
+        memberId,
+        resolution,
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Failed to complete alert:', error);
+      throw error;
+    }
+  },
 };

@@ -9,6 +9,7 @@ interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   profile: LiffProfile | null;
+  appUserId: string | null;
   memberships: TenantMember[];
   currentMembership: TenantMember | null;
   isAdmin: boolean;
@@ -24,6 +25,7 @@ export const useAuth = () => {
     isLoading: true,
     isAuthenticated: false,
     profile: null,
+    appUserId: null,
     memberships: [],
     currentMembership: null,
     isAdmin: false,
@@ -225,6 +227,7 @@ export const useAuth = () => {
           isLoading: false,
           isAuthenticated: true,
           profile,
+          appUserId,
           memberships: allMemberships,
           currentMembership,
           isAdmin,
@@ -236,6 +239,7 @@ export const useAuth = () => {
           isLoading: false,
           isAuthenticated: false,
           profile: null,
+          appUserId: null,
           memberships: [],
           currentMembership: null,
           isAdmin: false,
