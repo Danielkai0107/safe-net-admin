@@ -163,7 +163,7 @@ const sendAlertAssignment = async (lineUserId, channelAccessToken, alertData) =>
                         style: 'link',
                         action: {
                             type: 'uri',
-                            label: alertData.latitude && alertData.longitude ? '📍 查看地圖位置' : '查看詳情',
+                            label: alertData.latitude && alertData.longitude ? '查看地圖位置' : '查看詳情',
                             uri: alertData.latitude && alertData.longitude
                                 ? `https://www.google.com/maps?q=${alertData.latitude},${alertData.longitude}`
                                 : `https://liff.line.me/${process.env.LIFF_ID}/alerts/${alertData.id}`,
