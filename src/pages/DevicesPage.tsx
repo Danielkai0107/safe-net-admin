@@ -221,11 +221,11 @@ export const DevicesPage = () => {
   const onSubmit = async (data: any) => {
     try {
       if (editingDevice) {
-        // 編輯模式：檢查 UUID 是否與其他設備重複
-        if (data.uuid && data.uuid !== editingDevice.uuid) {
-          const existingDevice: any = await deviceService.getByUuid(data.uuid);
+        // 編輯模式：檢查 UUID + Major + Minor 組合是否與其他設備重複
+        if (data.uuid && data.major !== undefined && data.minor !== undefined) {
+          const existingDevice: any = await deviceService.getByMajorMinor(data.uuid, data.major, data.minor);
           if (existingDevice.data && existingDevice.data.id !== editingDevice.id) {
-            alert(`UUID「${data.uuid}」已被其他設備使用，請使用不同的 UUID`);
+            alert(`設備組合「UUID + Major(${data.major}) + Minor(${data.minor})」已被其他設備使用\n\n已存在的設備：${existingDevice.data.deviceName || '未命名設備'}\n\n請使用不同的 Major 或 Minor 編號`);
             return;
           }
         }
@@ -241,11 +241,11 @@ export const DevicesPage = () => {
         await deviceService.update(editingDevice.id, otherData);
         alert('更新成功');
       } else {
-        // 創建模式：檢查 UUID 是否已存在
-        if (data.uuid) {
-          const existingDevice: any = await deviceService.getByUuid(data.uuid);
+        // 創建模式：檢查 UUID + Major + Minor 組合是否已存在
+        if (data.uuid && data.major !== undefined && data.minor !== undefined) {
+          const existingDevice: any = await deviceService.getByMajorMinor(data.uuid, data.major, data.minor);
           if (existingDevice.data) {
-            alert(`UUID「${data.uuid}」已存在，請使用不同的 UUID\n\n已存在的設備：${existingDevice.data.deviceName || '未命名設備'}`);
+            alert(`設備組合「UUID + Major(${data.major}) + Minor(${data.minor})」已存在\n\n已存在的設備：${existingDevice.data.deviceName || '未命名設備'}\n\n💡 提示：多個設備可以使用相同的 UUID，但 Major + Minor 組合必須唯一`);
             return;
           }
         }
