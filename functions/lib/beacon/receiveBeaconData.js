@@ -174,21 +174,23 @@ function determineLocation(gateway, uploadedLat, uploadedLng) {
  */
 async function sendLineNotification(beacon, gateway, lat, lng, db, isFirstActivity = false) {
     try {
-        // 1. Find device by UUID
+        // 1. Find device by UUID + Major + Minor (unique identifier for Beacon)
         const deviceQuery = await db
             .collection('devices')
             .where('uuid', '==', beacon.uuid)
+            .where('major', '==', beacon.major)
+            .where('minor', '==', beacon.minor)
             .where('isActive', '==', true)
             .limit(1)
             .get();
         if (deviceQuery.empty) {
-            console.log(`No active device found for UUID ${beacon.uuid}`);
+            console.log(`No active device found for UUID ${beacon.uuid}, Major ${beacon.major}, Minor ${beacon.minor}`);
             return;
         }
         const device = deviceQuery.docs[0].data();
         const elderId = device.elderId;
         if (!elderId) {
-            console.log(`Device ${beacon.uuid} has no associated elder`);
+            console.log(`Device (UUID: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}) has no associated elder`);
             return;
         }
         // 2. Get elder info
@@ -434,21 +436,23 @@ async function sendLineNotification(beacon, gateway, lat, lng, db, isFirstActivi
  */
 async function createBoundaryAlert(beacon, gateway, lat, lng, db) {
     try {
-        // Find elder by device UUID
+        // Find elder by device UUID + Major + Minor (unique identifier for Beacon)
         const deviceQuery = await db
             .collection('devices')
             .where('uuid', '==', beacon.uuid)
+            .where('major', '==', beacon.major)
+            .where('minor', '==', beacon.minor)
             .where('isActive', '==', true)
             .limit(1)
             .get();
         if (deviceQuery.empty) {
-            console.log(`No active device found for UUID ${beacon.uuid}`);
+            console.log(`No active device found for UUID ${beacon.uuid}, Major ${beacon.major}, Minor ${beacon.minor}`);
             return;
         }
         const device = deviceQuery.docs[0].data();
         const elderId = device.elderId;
         if (!elderId) {
-            console.log(`Device ${beacon.uuid} has no associated elder`);
+            console.log(`Device (UUID: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}) has no associated elder`);
             return;
         }
         // Get elder info
@@ -520,22 +524,24 @@ async function processBeacon(beacon, gateway, uploadedLat, uploadedLng, timestam
     // Determine the location to use based on gateway type
     const { lat, lng } = determineLocation(gateway, uploadedLat, uploadedLng);
     try {
-        // 1. Find device by UUID to get the associated elder
+        // 1. Find device by UUID + Major + Minor (unique identifier for Beacon) to get the associated elder
         const deviceQuery = await db
             .collection('devices')
             .where('uuid', '==', beacon.uuid)
+            .where('major', '==', beacon.major)
+            .where('minor', '==', beacon.minor)
             .where('isActive', '==', true)
             .limit(1)
             .get();
         if (deviceQuery.empty) {
-            console.log(`No active device found for UUID ${beacon.uuid}, skipping location update`);
-            return { status: 'ignored', beaconId: beacon.uuid };
+            console.log(`No active device found for UUID ${beacon.uuid}, Major ${beacon.major}, Minor ${beacon.minor}, skipping location update`);
+            return { status: 'ignored', beaconId: `${beacon.uuid}-${beacon.major}-${beacon.minor}` };
         }
         const device = deviceQuery.docs[0].data();
         const elderId = device.elderId;
         if (!elderId) {
-            console.log(`Device ${beacon.uuid} has no associated elder, skipping location update`);
-            return { status: 'ignored', beaconId: beacon.uuid };
+            console.log(`Device (UUID: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}) has no associated elder, skipping location update`);
+            return { status: 'ignored', beaconId: `${beacon.uuid}-${beacon.major}-${beacon.minor}` };
         }
         // 2. Use elderId as the document ID in latest_locations
         const docId = elderId;

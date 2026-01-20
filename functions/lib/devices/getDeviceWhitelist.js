@@ -42,6 +42,10 @@ const https_1 = require("firebase-functions/v2/https");
  * Returns a list of ALL active devices in the system.
  * Used by Android receiver apps to filter which beacons to upload.
  *
+ * **重要：設備識別方式**
+ * - 主要識別：UUID + Major + Minor 組合
+ * - macAddress 僅供參考，不用於識別（會隨機變化）
+ *
  * No authentication required - public endpoint.
  */
 exports.getDeviceWhitelist = (0, https_1.onRequest)({
@@ -72,17 +76,23 @@ exports.getDeviceWhitelist = (0, https_1.onRequest)({
         // Format device list
         const devices = devicesQuery.docs
             .map(doc => {
+            var _a, _b;
             const data = doc.data();
             return {
                 uuid: data.uuid || '',
-                major: data.major || 0,
-                minor: data.minor || 0,
+                major: (_a = data.major) !== null && _a !== void 0 ? _a : 0,
+                minor: (_b = data.minor) !== null && _b !== void 0 ? _b : 0,
                 deviceName: data.deviceName,
-                macAddress: data.macAddress || '',
+                macAddress: data.macAddress,
             };
         })
-            .filter(device => device.uuid); // Only include devices with UUID
-        console.log(`Returning ${devices.length} devices with valid UUID`);
+            .filter(device => {
+            // 必須有 UUID 且 Major/Minor 有效
+            return device.uuid &&
+                device.major !== null &&
+                device.minor !== null;
+        });
+        console.log(`Returning ${devices.length} devices with valid UUID+Major+Minor`);
         // Return response
         const response = {
             success: true,

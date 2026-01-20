@@ -2,11 +2,11 @@ import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 
 interface DeviceWhitelistItem {
-  uuid: string;
-  major: number;
-  minor: number;
-  deviceName?: string;
-  macAddress: string;
+  uuid: string;          // 服務識別碼（必填）
+  major: number;         // 群組編號（必填）
+  minor: number;         // 設備編號（必填）
+  deviceName?: string;   // 設備名稱（選填）
+  macAddress?: string;   // MAC 地址（選填，不用於識別）
 }
 
 interface WhitelistResponse {
@@ -22,6 +22,10 @@ interface WhitelistResponse {
  * 
  * Returns a list of ALL active devices in the system.
  * Used by Android receiver apps to filter which beacons to upload.
+ * 
+ * **重要：設備識別方式**
+ * - 主要識別：UUID + Major + Minor 組合
+ * - macAddress 僅供參考，不用於識別（會隨機變化）
  * 
  * No authentication required - public endpoint.
  */
@@ -63,15 +67,20 @@ export const getDeviceWhitelist = onRequest(
           const data = doc.data();
           return {
             uuid: data.uuid || '',
-            major: data.major || 0,
-            minor: data.minor || 0,
+            major: data.major ?? 0,
+            minor: data.minor ?? 0,
             deviceName: data.deviceName,
-            macAddress: data.macAddress || '',
+            macAddress: data.macAddress,
           };
         })
-        .filter(device => device.uuid); // Only include devices with UUID
+        .filter(device => {
+          // 必須有 UUID 且 Major/Minor 有效
+          return device.uuid && 
+                 device.major !== null && 
+                 device.minor !== null;
+        });
 
-      console.log(`Returning ${devices.length} devices with valid UUID`);
+      console.log(`Returning ${devices.length} devices with valid UUID+Major+Minor`);
 
       // Return response
       const response: WhitelistResponse = {
