@@ -36,7 +36,7 @@
 **獲取服務 UUID 列表**
 
 ```
-URL: https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
+URL: https://getserviceuuids-kmzfyt3t5a-uc.a.run.app
 方法: GET / POST
 認證: 不需要
 ```
@@ -46,11 +46,7 @@ URL: https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
 {
   "success": true,
   "uuids": [
-    {
-      "uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
-      "name": "公司主要 UUID",
-      "description": "所有工卡型 Beacon 使用"
-    }
+    "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"
   ],
   "count": 1,
   "timestamp": 1737360000000
@@ -310,7 +306,7 @@ URL: https://us-central1-safe-net-tw.cloudfunctions.net/checkInactiveElders
 
 ### 測試服務 UUID API
 ```bash
-curl https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids | jq
+curl https://getserviceuuids-kmzfyt3t5a-uc.a.run.app | jq
 ```
 
 ### 測試白名單 API

@@ -10,7 +10,7 @@
 
 **URL:**
 ```
-https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
+https://getserviceuuids-kmzfyt3t5a-uc.a.run.app
 ```
 
 **方法:** `GET` 或 `POST`
@@ -27,16 +27,8 @@ https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
 {
   "success": true,
   "uuids": [
-    {
-      "uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
-      "name": "公司主要 UUID",
-      "description": "所有工卡型 Beacon 使用"
-    },
-    {
-      "uuid": "FDA50693-A4E2-4FB1-AFCF-C6EB07647825",
-      "name": "手環型 Beacon UUID",
-      "description": "用於手環型設備"
-    }
+    "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
+    "FDA50693-A4E2-4FB1-AFCF-C6EB07647825"
   ],
   "count": 2,
   "timestamp": 1737360000000
@@ -48,10 +40,7 @@ https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
 | 欄位 | 類型 | 說明 |
 |------|------|------|
 | success | boolean | 請求是否成功 |
-| uuids | array | UUID 列表 |
-| uuids[].uuid | string | UUID 字串 |
-| uuids[].name | string | UUID 名稱 |
-| uuids[].description | string | UUID 說明（選填） |
+| uuids | string[] | UUID 字串陣列 |
 | count | number | UUID 數量 |
 | timestamp | number | 回應時間戳（毫秒） |
 
@@ -72,7 +61,7 @@ class BeaconScanner {
             val response = apiService.getServiceUuids()
             if (response.success) {
                 serviceUuids.clear()
-                serviceUuids.addAll(response.uuids.map { it.uuid })
+                serviceUuids.addAll(response.uuids) // 直接使用 UUID 字串陣列
                 Log.d("Scanner", "Loaded ${serviceUuids.size} service UUIDs")
             }
         } catch (e: Exception) {
@@ -180,15 +169,9 @@ interface BeaconApiService {
 
 data class ServiceUuidResponse(
     val success: Boolean,
-    val uuids: List<ServiceUuid>,
+    val uuids: List<String>,  // 直接就是 UUID 字串陣列
     val count: Int,
     val timestamp: Long
-)
-
-data class ServiceUuid(
-    val uuid: String,
-    val name: String,
-    val description: String?
 )
 
 // 2. 服務 UUID 管理器
@@ -290,13 +273,13 @@ class BeaconScannerService : Service(), BeaconConsumer {
 
 ```bash
 # GET 請求
-curl https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
+curl https://getserviceuuids-kmzfyt3t5a-uc.a.run.app
 
 # 格式化輸出
-curl https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids | jq
+curl https://getserviceuuids-kmzfyt3t5a-uc.a.run.app | jq
 
 # POST 請求（也支援）
-curl -X POST https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
+curl -X POST https://getserviceuuids-kmzfyt3t5a-uc.a.run.app
 ```
 
 ### 預期回應
@@ -305,11 +288,7 @@ curl -X POST https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
 {
   "success": true,
   "uuids": [
-    {
-      "uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
-      "name": "公司主要 UUID",
-      "description": "所有工卡型 Beacon 使用"
-    }
+    "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0"
   ],
   "count": 1,
   "timestamp": 1737360123456
@@ -371,7 +350,7 @@ suspend fun fetchServiceUuids() {
 ### 3. 快取機制
 
 ```kotlin
-private fun saveToCache(uuids: List<ServiceUuid>) {
+private fun saveToCache(uuids: List<String>) {
     val json = Gson().toJson(uuids)
     sharedPreferences.edit()
         .putString("service_uuids", json)
@@ -382,8 +361,8 @@ private fun saveToCache(uuids: List<ServiceUuid>) {
 private fun loadFromCache() {
     val json = sharedPreferences.getString("service_uuids", null)
     if (json != null) {
-        val uuids = Gson().fromJson<List<ServiceUuid>>(json)
-        _serviceUuids.value = uuids.map { it.uuid }.toSet()
+        val uuids = Gson().fromJson<List<String>>(json)
+        _serviceUuids.value = uuids.toSet()
         Log.d("UuidManager", "Loaded ${uuids.size} UUIDs from cache")
     }
 }
@@ -429,7 +408,7 @@ private fun loadFromCache() {
 
 ## 🔗 相關連結
 
-- **API 端點：** https://us-central1-safe-net-tw.cloudfunctions.net/getServiceUuids
+- **API 端點：** https://getserviceuuids-kmzfyt3t5a-uc.a.run.app
 - **白名單 API：** https://getdevicewhitelist-kmzfyt3t5a-uc.a.run.app
 - **上傳 API：** https://receivebeacondata-kmzfyt3t5a-uc.a.run.app
 - **Firebase Console：** https://console.firebase.google.com/project/safe-net-tw/functions
