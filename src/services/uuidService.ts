@@ -1,5 +1,4 @@
-import { collection, query, where, orderBy } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { where } from 'firebase/firestore';
 import { 
   createDocument, 
   updateDocument, 
@@ -50,13 +49,9 @@ export const uuidService = {
   // 根據 UUID 字串獲取記錄
   getByUuid: async (uuid: string) => {
     try {
-      const uuidsQuery = query(
-        collection(db, 'beacon_uuids'),
-        where('uuid', '==', uuid)
-      );
-      
       // 這裡需要實際執行查詢，但為了簡化，我們先返回 null
       // 實際應該使用 getDocs 來查詢
+      console.log('Searching for UUID:', uuid);
       return { data: null };
     } catch (error) {
       console.error('Failed to get beacon UUID by uuid string:', error);
