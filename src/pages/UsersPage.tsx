@@ -164,7 +164,7 @@ export const UsersPage = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">人員管理</h1>
+          <h1 className="text-3xl font-bold text-gray-900">系統人員管理</h1>
           <p className="text-gray-600 mt-1">管理後台使用者帳號</p>
         </div>
         <button onClick={handleCreate} className="btn-primary flex items-center space-x-2">

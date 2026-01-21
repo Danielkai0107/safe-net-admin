@@ -360,7 +360,7 @@ export default function BeaconTestPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Beacon Data 測試工具</h1>
+      <h1 className="text-3xl font-bold mb-6">Line 通知測試</h1>
 
       {/* Function URL 設定 */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">

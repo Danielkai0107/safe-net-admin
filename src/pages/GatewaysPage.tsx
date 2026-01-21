@@ -244,7 +244,7 @@ export const GatewaysPage = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">接收點管理</h1>
+          <h1 className="text-3xl font-bold text-gray-900">GateWay 管理</h1>
           <p className="text-gray-600 mt-1">管理所有訊號接收點（可選擇標記所在社區範圍）</p>
           <p className="text-sm text-blue-600 mt-1">
             💡 接收點不需要分配社區，可接收所有設備訊號。標記社區僅用於位置管理。

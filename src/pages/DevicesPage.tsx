@@ -314,7 +314,7 @@ export const DevicesPage = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">設備管理</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Beacon 管理</h1>
           <p className="text-gray-600 mt-1">管理所有 Beacon 設備（UUID + Major + Minor 組合識別）</p>
           <p className="text-sm text-blue-600 mt-1">
             💡 工作流程：先登記設備（設備池） → 前往「社區管理」分配到社區 → 再到「長者管理」綁定給長者
