@@ -95,13 +95,13 @@ firebase deploy
 
 ### 步驟 5: 測試 API
 
-#### 5.1 測試公共接收點查詢（不需認證）
+#### 5.1 測試接收點查詢（不需認證）
 
 ```bash
 curl https://us-central1-safe-net-tw.cloudfunctions.net/getPublicGateways | jq
 ```
 
-**預期結果:** 回傳空陣列或已標記為 PUBLIC 的 Gateway 列表
+**預期結果:** 回傳所有啟用的 Gateway 列表（包括社區專用和公共接收點）
 
 #### 5.2 測試用戶認證（需要 Firebase Auth Token）
 
@@ -136,18 +136,20 @@ curl -X POST https://us-central1-safe-net-tw.cloudfunctions.net/mapUserAuth \
 }
 ```
 
-### 2. 設定公共接收點
+### 2. 設定接收點（選填）
 
-為測試 Gateway 新增 `poolType` 欄位：
+接收點的 `poolType` 欄位是選填的，因為地圖 APP 會顯示所有接收點：
 
 ```javascript
-// 到 Firestore > gateways > 選擇一個接收器 > 編輯
+// 到 Firestore > gateways > 選擇一個接收器（選填設定）
 {
   ...existing fields,
-  "poolType": "PUBLIC",
-  "tenantId": null  // 公共接收器不屬於任何 Tenant
+  "poolType": "PUBLIC",  // 選填：標記為公共接收點
+  "tenantId": null       // 選填：公共接收器可設為 null
 }
 ```
+
+**注意:** 不設定 `poolType` 也沒關係，地圖 APP 會自動顯示所有啟用的接收點。
 
 ### 3. 新增 Firestore Collections
 

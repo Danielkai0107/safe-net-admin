@@ -40,7 +40,8 @@ const https_1 = require("firebase-functions/v2/https");
  * Get Public Gateways
  * GET /getPublicGateways
  *
- * Returns all gateways in the public pool
+ * Returns all active gateways (including tenant gateways)
+ * For map app users, all gateways form the safety network
  * No authentication required (public data)
  */
 exports.getPublicGateways = (0, https_1.onRequest)(async (req, res) => {
@@ -58,10 +59,10 @@ exports.getPublicGateways = (0, https_1.onRequest)(async (req, res) => {
     }
     try {
         const db = admin.firestore();
-        // Query gateways with poolType === 'PUBLIC' and isActive === true
+        // Query all active gateways (including both public and tenant gateways)
+        // All gateways form the safety network for map app users
         const gatewaysSnapshot = await db
             .collection('gateways')
-            .where('poolType', '==', 'PUBLIC')
             .where('isActive', '==', true)
             .get();
         const gateways = gatewaysSnapshot.docs.map(doc => {
@@ -74,6 +75,8 @@ exports.getPublicGateways = (0, https_1.onRequest)(async (req, res) => {
                 longitude: data.longitude,
                 type: data.type,
                 serialNumber: data.serialNumber,
+                tenantId: data.tenantId || null, // Include tenant info for reference
+                poolType: data.poolType || 'TENANT', // Default to TENANT if not set
             };
         });
         res.json({

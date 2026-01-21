@@ -162,10 +162,12 @@ const idToken = await user.getIdToken();
 
 ### 4. 公共接收點查詢
 
-#### `getPublicGateways` - 取得公共接收點列表
+#### `getPublicGateways` - 取得所有接收點列表
 
 **端點:** `GET /getPublicGateways`  
 **認證:** 不需要 (公開資料)
+
+**說明:** 回傳所有啟用的接收點（包括社區專用和公共接收點）。對地圖 APP 用戶來說，所有的接收點都是安全網的一部分。
 
 **回應:**
 ```json
@@ -179,7 +181,9 @@ const idToken = await user.getIdToken();
       "latitude": 25.047908,
       "longitude": 121.517315,
       "type": "GENERAL",
-      "serialNumber": "SN12345"
+      "serialNumber": "SN12345",
+      "tenantId": null,
+      "poolType": "PUBLIC"
     },
     {
       "id": "gateway_002",
@@ -188,13 +192,19 @@ const idToken = await user.getIdToken();
       "latitude": 25.033964,
       "longitude": 121.564468,
       "type": "BOUNDARY",
-      "serialNumber": "SN67890"
+      "serialNumber": "SN67890",
+      "tenantId": "tenant_abc",
+      "poolType": "TENANT"
     }
   ],
   "count": 2,
   "timestamp": 1737446400000
 }
 ```
+
+**欄位說明:**
+- `tenantId`: 若為社區專用接收點，會顯示所屬社區 ID；公共接收點為 `null`
+- `poolType`: `"PUBLIC"` 為公共接收點，`"TENANT"` 為社區專用接收點
 
 ---
 
@@ -428,7 +438,7 @@ await fetch('https://us-central1-safe-net-tw.cloudfunctions.net/bindDeviceToMapU
 
 ### 4. 取得公共接收點並選擇通知點位
 ```javascript
-// 取得所有公共接收點
+// 取得所有接收點（包括社區的點，形成完整的安全網）
 const gateways = await fetch('https://us-central1-safe-net-tw.cloudfunctions.net/getPublicGateways')
   .then(res => res.json());
 
