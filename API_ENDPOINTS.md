@@ -117,11 +117,24 @@ URL: https://receivebeacondata-kmzfyt3t5a-uc.a.run.app
       "uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
       "major": 1,
       "minor": 1001,
-      "rssi": -65
+      "rssi": -65,
+      "batteryLevel": 85
     }
   ]
 }
 ```
+
+**欄位說明:**
+- `gateway_id` (必需): 接收器識別碼（MAC Address 或 IMEI）
+- `lat` (選填): 緯度（移動接收器建議提供）
+- `lng` (選填): 經度（移動接收器建議提供）
+- `timestamp` (必需): 時間戳記（毫秒）
+- `beacons` (必需): Beacon 陣列
+  - `uuid` (必需): 服務識別碼
+  - `major` (必需): 群組編號
+  - `minor` (必需): 設備編號
+  - `rssi` (必需): 信號強度
+  - `batteryLevel` (選填): 電量百分比 (0-100)
 
 **回應範例:**
 ```json

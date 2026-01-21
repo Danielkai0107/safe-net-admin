@@ -650,7 +650,7 @@ const profile = await fetch(
 - 後台管理 API
 
 ### 共用的 API
-- `receiveBeaconData`: 已擴充支援地圖用戶，同時保持原有 Tenant-Elder 功能
+- `receiveBeaconData`: 已擴充支援地圖用戶，同時保持原有 Tenant-Elder 功能。現已支援電量更新（batteryLevel 欄位）
 - `getServiceUuids`: 地圖用戶的接收器也需要此 API
 - `getDeviceWhitelist`: 可選擇性使用
 
