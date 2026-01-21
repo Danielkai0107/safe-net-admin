@@ -283,6 +283,19 @@ async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, is
             console.log(`Elder ${elderId} has no associated tenant, skipping notification`);
             return;
         }
+        // 3.5. Get latest location to get accurate last_seen time
+        const latestLocationDoc = await db.collection('latest_locations').doc(elderId).get();
+        let lastSeenTime = new Date(timestamp).toLocaleString('zh-TW'); // fallback to timestamp
+        if (latestLocationDoc.exists) {
+            const locationData = latestLocationDoc.data();
+            if (locationData === null || locationData === void 0 ? void 0 : locationData.last_seen) {
+                // Convert Firestore Timestamp to readable format
+                const lastSeenTimestamp = locationData.last_seen.toMillis ?
+                    locationData.last_seen.toMillis() :
+                    new Date(locationData.last_seen).getTime();
+                lastSeenTime = new Date(lastSeenTimestamp).toLocaleString('zh-TW');
+            }
+        }
         // 4. Get tenant LINE credentials
         const tenantDoc = await db.collection('tenants').doc(tenantId).get();
         if (!tenantDoc.exists) {
@@ -468,7 +481,7 @@ async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, is
                                         },
                                         {
                                             type: 'text',
-                                            text: new Date(timestamp).toLocaleString('zh-TW'),
+                                            text: lastSeenTime,
                                             size: 'sm',
                                             color: '#111111',
                                             flex: 5,
