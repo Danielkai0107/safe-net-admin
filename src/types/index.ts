@@ -101,6 +101,8 @@ export interface Device {
   id: string;
   tenantId: string | null;
   elderId: string | null;
+  mapAppUserId?: string;  // 地圖 APP 用戶綁定
+  poolType?: PoolType;    // 設備池類型
   // ✅ 核心識別欄位（用於 Beacon 識別）
   uuid: string;           // 必填 - 服務識別碼（所有同公司設備統一）
   major: number;          // 必填 - 群組編號（例如：社區/區域）
@@ -127,7 +129,8 @@ export const DeviceType = {
 // Gateway
 export interface Gateway {
   id: string;
-  tenantId: string;
+  tenantId: string | null;
+  poolType?: PoolType;     // 接收器池類型
   serialNumber: string;
   macAddress?: string;     // MAC Address for commercial receivers
   imei?: string;           // IMEI for mobile phones
@@ -232,4 +235,58 @@ export interface DashboardStats {
   gateways: { total: number };
   alerts: { pending: number; today: number };
   logs: { today: number };
+}
+
+// ========================================
+// Map App 相關型別定義
+// ========================================
+
+// 設備池類型
+export type PoolType = "TENANT" | "PUBLIC";
+
+export const PoolType = {
+  TENANT: "TENANT",
+  PUBLIC: "PUBLIC",
+} as const;
+
+// 地圖 APP 用戶
+export interface MapAppUser {
+  id: string;
+  email?: string;
+  name: string;
+  phone?: string;
+  avatar?: string;
+  boundDeviceId?: string;
+  boundAt?: string;
+  fcmToken?: string;
+  notificationEnabled: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 用戶通知點位
+export interface MapUserNotificationPoint {
+  id: string;
+  mapAppUserId: string;
+  gatewayId: string;
+  name: string;
+  notificationMessage?: string;
+  isActive: boolean;
+  createdAt: string;
+  gateway?: Gateway;
+}
+
+// 用戶活動記錄
+export interface MapUserActivity {
+  id: string;
+  mapAppUserId: string;
+  deviceId: string;
+  gatewayId: string;
+  timestamp: string;
+  rssi?: number;
+  latitude?: number;
+  longitude?: number;
+  triggeredNotification?: boolean;
+  notificationPointId?: string;
 }
