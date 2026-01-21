@@ -6,6 +6,7 @@ import { tenantService } from '../services/tenantService';
 import type { Gateway, GatewayType, Tenant } from '../types';
 import { Modal } from '../components/Modal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { PlaceAutocomplete } from '../components/PlaceAutocomplete';
 
 export const GatewaysPage = () => {
   const [gateways, setGateways] = useState<Gateway[]>([]);
@@ -21,8 +22,11 @@ export const GatewaysPage = () => {
   
   // 批次選擇相關
   const [selectedGateways, setSelectedGateways] = useState<string[]>([]);
+  
+  // Google Places 搜尋相關
+  const [placeName, setPlaceName] = useState('');
 
-  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm();
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm();
   const selectedType = watch('type');
 
   useEffect(() => {
@@ -88,8 +92,12 @@ export const GatewaysPage = () => {
     reset({ 
       serialNumber: gatewaySerial,
       type: 'GENERAL', 
-      isActive: true 
+      isActive: true,
+      name: '',
+      latitude: undefined,
+      longitude: undefined,
     });
+    setPlaceName('');
     setShowModal(true);
   };
 
@@ -123,6 +131,7 @@ export const GatewaysPage = () => {
       ...gateway,
       serialNumber: gatewaySerial
     });
+    setPlaceName(gateway.name || '');
     setShowModal(true);
   };
 
@@ -173,6 +182,15 @@ export const GatewaysPage = () => {
     } catch (error: any) {
       alert(error.response?.data?.message || '批次刪除失敗');
     }
+  };
+
+  // 處理 Google Places 地點選擇
+  const handlePlaceSelected = (place: { name: string; lat: number; lng: number }) => {
+    setPlaceName(place.name);
+    setValue('name', place.name);
+    setValue('latitude', place.lat);
+    setValue('longitude', place.lng);
+    console.log('已選擇地點:', place);
   };
 
   const onSubmit = async (data: any) => {
@@ -427,14 +445,22 @@ export const GatewaysPage = () => {
             </div>
 
             <div className="col-span-2">
-              <label className="label">名稱 *</label>
-              <input
-                {...register('name', { required: true })}
+              <label className="label">搜尋地點 *</label>
+              <PlaceAutocomplete
+                value={placeName}
+                onChange={setPlaceName}
+                onPlaceSelected={handlePlaceSelected}
+                placeholder="搜尋地點（例如：台北101、某某社區大門）"
                 className="input"
-                placeholder="社區大門"
               />
               {errors.name && <p className="text-sm text-red-600 mt-1">請輸入名稱</p>}
+              <p className="text-xs text-blue-600 mt-1">
+                💡 使用 Google 地點搜尋，選擇後會自動帶入經緯度
+              </p>
             </div>
+            
+            {/* 隱藏的名稱欄位，用於表單驗證 */}
+            <input type="hidden" {...register('name', { required: true })} />
 
             <div className="col-span-2">
               <label className="label">位置描述</label>
@@ -461,11 +487,11 @@ export const GatewaysPage = () => {
                   <input
                     type="number"
                     step="any"
-                    {...register('latitude')}
-                    className="input"
+                    {...register('latitude', { valueAsNumber: true })}
+                    className="input bg-green-50"
                     placeholder="25.033"
                   />
-                  <p className="text-xs text-gray-500 mt-1">移動式接收點不需要</p>
+                  <p className="text-xs text-green-600 mt-1">✓ 選擇地點後自動填入</p>
                 </div>
 
                 <div>
@@ -473,10 +499,11 @@ export const GatewaysPage = () => {
                   <input
                     type="number"
                     step="any"
-                    {...register('longitude')}
-                    className="input"
+                    {...register('longitude', { valueAsNumber: true })}
+                    className="input bg-green-50"
                     placeholder="121.5654"
                   />
+                  <p className="text-xs text-green-600 mt-1">✓ 選擇地點後自動填入</p>
                 </div>
               </>
             )}
