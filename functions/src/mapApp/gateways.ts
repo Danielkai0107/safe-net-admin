@@ -46,7 +46,6 @@ export const getPublicGateways = onRequest(async (req, res) => {
         type: data.type,
         serialNumber: data.serialNumber,
         tenantId: data.tenantId || null,  // Include tenant info for reference
-        poolType: data.poolType || 'TENANT',  // Default to TENANT if not set
       };
     });
 

@@ -93,7 +93,7 @@ exports.addMapUserNotificationPoint = (0, https_1.onRequest)(async (req, res) =>
             res.status(404).json({ success: false, error: 'Gateway not found' });
             return;
         }
-        // No need to check poolType - all gateways can be used for notifications
+        // All active gateways can be used for notifications
         // Create notification point
         const notificationPoint = {
             mapAppUserId: body.userId,

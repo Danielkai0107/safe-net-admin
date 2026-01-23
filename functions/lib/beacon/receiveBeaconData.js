@@ -246,69 +246,11 @@ function determineLocation(gateway, uploadedLat, uploadedLng) {
     return { lat: 0, lng: 0 };
 }
 /**
- * Send LINE notification to all tenant members
+ * Send LINE notification to tenant members for elder
  */
-async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, isFirstActivity = false) {
+async function sendLineNotificationToTenant(elderId, elder, beacon, gateway, lat, lng, timestamp, tenantId, channelAccessToken, db) {
     try {
-        // 1. Find device by UUID + Major + Minor (unique identifier for Beacon)
-        const deviceQuery = await db
-            .collection('devices')
-            .where('uuid', '==', beacon.uuid)
-            .where('major', '==', beacon.major)
-            .where('minor', '==', beacon.minor)
-            .where('isActive', '==', true)
-            .limit(1)
-            .get();
-        if (deviceQuery.empty) {
-            console.log(`No active device found for UUID ${beacon.uuid}, Major ${beacon.major}, Minor ${beacon.minor}`);
-            return;
-        }
-        const device = deviceQuery.docs[0].data();
-        const elderId = device.elderId;
-        if (!elderId) {
-            console.log(`Device (UUID: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}) has no associated elder`);
-            return;
-        }
-        // 2. Get elder info
-        const elderDoc = await db.collection('elders').doc(elderId).get();
-        if (!elderDoc.exists) {
-            console.log(`Elder ${elderId} not found`);
-            return;
-        }
-        const elder = elderDoc.data();
-        // 3. Get tenantId from elder (not from gateway)
-        const tenantId = elder === null || elder === void 0 ? void 0 : elder.tenantId;
-        // Skip notification if elder is not associated with any tenant
-        if (!tenantId) {
-            console.log(`Elder ${elderId} has no associated tenant, skipping notification`);
-            return;
-        }
-        // 3.5. Get latest location to get accurate last_seen time
-        const latestLocationDoc = await db.collection('latest_locations').doc(elderId).get();
-        let lastSeenTime = new Date(timestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }); // fallback to timestamp
-        if (latestLocationDoc.exists) {
-            const locationData = latestLocationDoc.data();
-            if (locationData === null || locationData === void 0 ? void 0 : locationData.last_seen) {
-                // Convert Firestore Timestamp to readable format
-                const lastSeenTimestamp = locationData.last_seen.toMillis ?
-                    locationData.last_seen.toMillis() :
-                    new Date(locationData.last_seen).getTime();
-                lastSeenTime = new Date(lastSeenTimestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
-            }
-        }
-        // 4. Get tenant LINE credentials
-        const tenantDoc = await db.collection('tenants').doc(tenantId).get();
-        if (!tenantDoc.exists) {
-            console.log(`Tenant ${tenantId} not found`);
-            return;
-        }
-        const tenant = tenantDoc.data();
-        const channelAccessToken = tenant === null || tenant === void 0 ? void 0 : tenant.lineChannelAccessToken;
-        if (!channelAccessToken) {
-            console.log(`Tenant ${tenantId} has no LINE Channel Access Token configured`);
-            return;
-        }
-        // 5. Get all approved tenant members
+        // 1. Get all approved tenant members
         const membersQuery = await db
             .collection('tenants').doc(tenantId)
             .collection('members')
@@ -318,7 +260,7 @@ async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, is
             console.log(`No approved members found for tenant ${tenantId}`);
             return;
         }
-        // 6. Get appUsers with LINE IDs
+        // 2. Get appUsers with LINE IDs
         const memberAppUserIds = membersQuery.docs.map(doc => doc.data().appUserId);
         const lineUserIds = [];
         for (const appUserId of memberAppUserIds) {
@@ -335,17 +277,16 @@ async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, is
             return;
         }
         // Check if location update notification is enabled
-        // Boundary alerts and first activity ALWAYS send, only subsequent updates can be disabled
         const notificationEnabled = enableLocationNotification.value() === 'true';
+        const isFirstActivity = false; // This would need to be determined differently in the new architecture
         if (gateway.type !== 'BOUNDARY' && !isFirstActivity && !notificationEnabled) {
             console.log(`Location update notification disabled, skipping notification for ${gateway.type} gateway`);
             return;
         }
-        // 7. Create LINE client and send message
+        // 3. Create LINE client and send message
         const client = new bot_sdk_1.Client({ channelAccessToken });
         const gatewayTypeText = gateway.type === 'BOUNDARY' ? '邊界點' :
             gateway.type === 'MOBILE' ? '移動接收器' : '一般接收器';
-        // Determine notification text based on gateway type and first activity
         let headerText = '';
         let bodyText = '';
         if (gateway.type === 'BOUNDARY') {
@@ -353,15 +294,10 @@ async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, is
             bodyText = `${(elder === null || elder === void 0 ? void 0 : elder.name) || '長輩'} 出現在邊界點`;
         }
         else {
-            if (isFirstActivity) {
-                headerText = '今日首次活動';
-                bodyText = `${(elder === null || elder === void 0 ? void 0 : elder.name) || '長輩'} 今日首次偵測到活動`;
-            }
-            else {
-                headerText = '位置更新';
-                bodyText = `${(elder === null || elder === void 0 ? void 0 : elder.name) || '長輩'} 位置已更新`;
-            }
+            headerText = '位置更新';
+            bodyText = `${(elder === null || elder === void 0 ? void 0 : elder.name) || '長輩'} 位置已更新`;
         }
+        const lastSeenTime = new Date(timestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
         const flexMessage = {
             type: 'flex',
             altText: `${(elder === null || elder === void 0 ? void 0 : elder.name) || '長輩'} ${headerText}通知`,
@@ -522,49 +458,15 @@ async function sendLineNotification(beacon, gateway, lat, lng, timestamp, db, is
         }
     }
     catch (error) {
-        console.error('Error sending LINE notification:', error);
-        // Don't throw error - notification failure shouldn't stop the main process
+        console.error('Error sending LINE notification to tenant:', error);
     }
 }
 /**
- * Create boundary alert for elder detected at boundary gateway
+ * Create boundary alert for elder (simplified)
  */
-async function createBoundaryAlert(beacon, gateway, lat, lng, db) {
+async function createBoundaryAlertForElder(elderId, elder, beacon, gateway, lat, lng, tenantId, db) {
     try {
-        // Find elder by device UUID + Major + Minor (unique identifier for Beacon)
-        const deviceQuery = await db
-            .collection('devices')
-            .where('uuid', '==', beacon.uuid)
-            .where('major', '==', beacon.major)
-            .where('minor', '==', beacon.minor)
-            .where('isActive', '==', true)
-            .limit(1)
-            .get();
-        if (deviceQuery.empty) {
-            console.log(`No active device found for UUID ${beacon.uuid}, Major ${beacon.major}, Minor ${beacon.minor}`);
-            return;
-        }
-        const device = deviceQuery.docs[0].data();
-        const elderId = device.elderId;
-        if (!elderId) {
-            console.log(`Device (UUID: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}) has no associated elder`);
-            return;
-        }
-        // Get elder info
-        const elderDoc = await db.collection('elders').doc(elderId).get();
-        if (!elderDoc.exists) {
-            console.log(`Elder ${elderId} not found`);
-            return;
-        }
-        const elder = elderDoc.data();
-        // Get tenantId from elder
-        const tenantId = elder === null || elder === void 0 ? void 0 : elder.tenantId;
-        if (!tenantId) {
-            console.log(`Elder ${elderId} has no associated tenant, skipping boundary alert`);
-            return;
-        }
-        // Check if there's already a recent BOUNDARY alert (within 5 minutes)
-        // Simplified query to avoid complex index requirements
+        // Check if there's already a recent BOUNDARY alert (within cooldown period)
         const recentAlertsQuery = await db
             .collection('alerts')
             .where('elderId', '==', elderId)
@@ -615,11 +517,227 @@ async function createBoundaryAlert(beacon, gateway, lat, lng, db) {
     }
     catch (error) {
         console.error('Error creating boundary alert:', error);
-        // Don't throw error - notification failure shouldn't stop the main process
+    }
+}
+// OLD FUNCTIONS REMOVED - Now using sendLineNotificationToTenant and createBoundaryAlertForElder
+/**
+ * Record device activity to device subcollection
+ */
+async function recordDeviceActivity(deviceId, device, beacon, gateway, lat, lng, timestamp, notificationResult, db) {
+    const activityData = {
+        timestamp: admin.firestore.Timestamp.fromMillis(timestamp),
+        gatewayId: gateway.id,
+        gatewayName: gateway.name,
+        gatewayType: gateway.type,
+        latitude: lat,
+        longitude: lng,
+        rssi: beacon.rssi,
+        bindingType: device.bindingType || 'UNBOUND',
+        boundTo: device.boundTo || null,
+        triggeredNotification: notificationResult.triggered,
+        notificationType: notificationResult.type,
+        notificationDetails: notificationResult.details || null,
+    };
+    // 如果是 MAP_USER 且有觸發通知，加上 notificationPointId
+    if (notificationResult.triggered && notificationResult.pointId) {
+        activityData.notificationPointId = notificationResult.pointId;
+    }
+    await db.collection('devices').doc(deviceId)
+        .collection('activities')
+        .add(activityData);
+    console.log(`Recorded activity for device ${deviceId} at gateway ${gateway.id} - notification: ${notificationResult.triggered}`);
+}
+/**
+ * Handle notification based on device binding type
+ */
+async function handleNotification(deviceId, device, beacon, gateway, lat, lng, timestamp, db) {
+    const bindingType = device.bindingType || 'UNBOUND';
+    switch (bindingType) {
+        case 'ELDER':
+            if (device.boundTo) {
+                return await handleElderNotification(deviceId, device.boundTo, beacon, gateway, lat, lng, timestamp, db);
+            }
+            return { triggered: false, type: null };
+        case 'MAP_USER':
+            if (device.boundTo) {
+                return await handleMapUserNotification(deviceId, device.boundTo, beacon, gateway, lat, lng, timestamp, db);
+            }
+            return { triggered: false, type: null };
+        case 'UNBOUND':
+        default:
+            console.log(`Device ${deviceId} is unbound, no notification sent`);
+            return { triggered: false, type: null };
     }
 }
 /**
- * Process a single beacon with 5-minute cooldown logic
+ * Handle Elder notification (LINE)
+ */
+async function handleElderNotification(deviceId, elderId, beacon, gateway, lat, lng, timestamp, db) {
+    try {
+        // 1. Get elder data
+        const elderDoc = await db.collection('elders').doc(elderId).get();
+        if (!elderDoc.exists) {
+            console.log(`Elder ${elderId} not found`);
+            return { triggered: false, type: null };
+        }
+        const elder = elderDoc.data();
+        const tenantId = elder === null || elder === void 0 ? void 0 : elder.tenantId;
+        if (!tenantId) {
+            console.log(`Elder ${elderId} has no associated tenant, skipping notification`);
+            return { triggered: false, type: null };
+        }
+        // 2. Get tenant LINE settings
+        const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+        if (!tenantDoc.exists) {
+            console.log(`Tenant ${tenantId} not found`);
+            return { triggered: false, type: null };
+        }
+        const tenant = tenantDoc.data();
+        const channelAccessToken = tenant === null || tenant === void 0 ? void 0 : tenant.lineChannelAccessToken;
+        if (!channelAccessToken) {
+            console.log(`Tenant ${tenantId} has no LINE Channel Access Token`);
+            return { triggered: false, type: null };
+        }
+        // 3. Send LINE notification (reuse existing LINE notification logic)
+        await sendLineNotificationToTenant(elderId, elder, beacon, gateway, lat, lng, timestamp, tenantId, channelAccessToken, db);
+        // 4. Handle boundary alert
+        if (gateway.type === 'BOUNDARY') {
+            await createBoundaryAlertForElder(elderId, elder, beacon, gateway, lat, lng, tenantId, db);
+        }
+        console.log(`Handled elder notification for ${elderId}`);
+        return {
+            triggered: true,
+            type: 'LINE',
+            details: {
+                elderId: elderId,
+                tenantId: tenantId,
+                gatewayType: gateway.type,
+            }
+        };
+    }
+    catch (error) {
+        console.error(`Error in handleElderNotification for elder ${elderId}:`, error);
+        return { triggered: false, type: null };
+    }
+}
+/**
+ * Handle Map User notification (FCM)
+ */
+async function handleMapUserNotification(deviceId, mapAppUserId, beacon, gateway, lat, lng, timestamp, db) {
+    try {
+        // 1. Check if user has notification points at this gateway
+        const notifPointsSnapshot = await db
+            .collection('mapUserNotificationPoints')
+            .where('mapAppUserId', '==', mapAppUserId)
+            .where('gatewayId', '==', gateway.id)
+            .where('isActive', '==', true)
+            .limit(1)
+            .get();
+        if (notifPointsSnapshot.empty) {
+            console.log(`No notification points for user ${mapAppUserId} at gateway ${gateway.id}`);
+            return { triggered: false, type: null };
+        }
+        const notifPoint = notifPointsSnapshot.docs[0];
+        const notifPointData = notifPoint.data();
+        // 2. Get user FCM token
+        const userDoc = await db.collection('mapAppUsers').doc(mapAppUserId).get();
+        if (!userDoc.exists) {
+            console.log(`Map user ${mapAppUserId} not found`);
+            // 即使用戶不存在，仍記錄這是通知點
+            return {
+                triggered: false,
+                type: null,
+                pointId: notifPoint.id, // 記錄通知點 ID
+                details: {
+                    notificationPointName: notifPointData.name,
+                    reason: 'User not found'
+                }
+            };
+        }
+        const userData = userDoc.data();
+        // 3. Send FCM notification
+        if ((userData === null || userData === void 0 ? void 0 : userData.fcmToken) && (userData === null || userData === void 0 ? void 0 : userData.notificationEnabled)) {
+            try {
+                const notificationMessage = notifPointData.notificationMessage ||
+                    `您的設備已經過 ${notifPointData.name}`;
+                await admin.messaging().send({
+                    token: userData.fcmToken,
+                    notification: {
+                        title: '位置通知',
+                        body: notificationMessage,
+                    },
+                    data: {
+                        type: 'LOCATION_ALERT',
+                        gatewayId: gateway.id,
+                        gatewayName: gateway.name || '',
+                        deviceId: deviceId,
+                        notificationPointId: notifPoint.id,
+                        latitude: lat.toString(),
+                        longitude: lng.toString(),
+                    },
+                    android: {
+                        priority: 'high',
+                        notification: {
+                            sound: 'default',
+                            channelId: 'location_alerts',
+                        },
+                    },
+                    apns: {
+                        payload: {
+                            aps: {
+                                sound: 'default',
+                                badge: 1,
+                            },
+                        },
+                    },
+                });
+                console.log(`Sent FCM notification to map user ${mapAppUserId}`);
+                return {
+                    triggered: true,
+                    type: 'FCM',
+                    pointId: notifPoint.id,
+                    details: {
+                        mapAppUserId: mapAppUserId,
+                        notificationPointName: notifPointData.name,
+                        message: notificationMessage,
+                    }
+                };
+            }
+            catch (fcmError) {
+                console.error(`Failed to send FCM notification to user ${mapAppUserId}:`, fcmError);
+                // 發送失敗仍記錄這是通知點
+                return {
+                    triggered: false,
+                    type: null,
+                    pointId: notifPoint.id,
+                    details: {
+                        notificationPointName: notifPointData.name,
+                        reason: 'FCM send failed'
+                    }
+                };
+            }
+        }
+        else {
+            // 用戶關閉通知或沒有 token，仍記錄這是通知點
+            console.log(`User ${mapAppUserId} has notifications disabled or no FCM token`);
+            return {
+                triggered: false,
+                type: null,
+                pointId: notifPoint.id, // 重點：記錄通知點 ID
+                details: {
+                    notificationPointName: notifPointData.name,
+                    reason: (userData === null || userData === void 0 ? void 0 : userData.notificationEnabled) === false ? 'Notifications disabled' : 'No FCM token'
+                }
+            };
+        }
+    }
+    catch (error) {
+        console.error(`Error in handleMapUserNotification for user ${mapAppUserId}:`, error);
+        return { triggered: false, type: null };
+    }
+}
+/**
+ * Process a single beacon - UNIFIED LOGIC
  */
 async function processBeacon(beacon, gateway, uploadedLat, uploadedLng, timestamp, db) {
     var _a;
@@ -642,251 +760,29 @@ async function processBeacon(beacon, gateway, uploadedLat, uploadedLng, timestam
         const deviceDoc = deviceQuery.docs[0];
         const device = deviceDoc.data();
         const deviceId = deviceDoc.id;
-        // 🆕 Update device battery level and lastSeen if battery info is provided
+        // 2. Update device status
         const deviceUpdateData = {
             lastSeen: new Date(timestamp).toISOString(),
             lastRssi: beacon.rssi,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        // Only update batteryLevel if it's provided in the beacon data
         if (beacon.batteryLevel !== undefined && beacon.batteryLevel !== null) {
             deviceUpdateData.batteryLevel = beacon.batteryLevel;
         }
         await deviceDoc.ref.update(deviceUpdateData);
         console.log(`Updated device ${deviceId} - batteryLevel: ${(_a = beacon.batteryLevel) !== null && _a !== void 0 ? _a : 'N/A'}, lastSeen: ${new Date(timestamp).toISOString()}`);
-        // 🆕 Check if this is a map app user device
-        if (device.poolType === 'PUBLIC' && device.mapAppUserId) {
-            console.log(`Processing beacon for map app user ${device.mapAppUserId}`);
-            await handleMapUserBeacon(beacon, gateway, deviceId, device.mapAppUserId, lat, lng, timestamp, db);
-            return { status: 'updated', beaconId: deviceId };
-        }
-        // Original logic: Handle tenant-elder system
-        const elderId = device.elderId;
-        if (!elderId) {
-            console.log(`Device (UUID: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}) has no associated elder or map user, skipping`);
-            return { status: 'ignored', beaconId: `${beacon.uuid}-${beacon.major}-${beacon.minor}` };
-        }
-        // 2. Use elderId as the document ID in latest_locations
-        const docId = elderId;
-        const docRef = db.collection('latest_locations').doc(docId);
-        // Read the existing document
-        const doc = await docRef.get();
-        // Prepare location data
-        const locationData = {
-            elderId: elderId,
-            deviceUuid: beacon.uuid,
-            gateway_id: gateway.id,
-            gateway_name: gateway.name,
-            gateway_type: gateway.type,
-            lat: lat,
-            lng: lng,
-            rssi: beacon.rssi,
-            major: beacon.major,
-            minor: beacon.minor,
-            last_seen: admin.firestore.FieldValue.serverTimestamp(),
-        };
-        // If document doesn't exist, create it
-        if (!doc.exists) {
-            // Update main document (latest location)
-            await docRef.set(locationData);
-            // Create history record in subcollection
-            await docRef.collection('history').add({
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                gateway: {
-                    id: gateway.id,
-                    name: gateway.name,
-                    location: gateway.location,
-                    type: gateway.type,
-                },
-                latitude: lat,
-                longitude: lng,
-                rssi: beacon.rssi,
-                deviceUuid: beacon.uuid,
-                major: beacon.major,
-                minor: beacon.minor,
-            });
-            console.log(`Created new location record for elder ${docId} at ${gateway.type} gateway`);
-            // Create alert if BOUNDARY gateway
-            if (gateway.type === 'BOUNDARY') {
-                await createBoundaryAlert(beacon, gateway, lat, lng, db);
-            }
-            // Send LINE notification to members (first activity of the day)
-            await sendLineNotification(beacon, gateway, lat, lng, timestamp, db, true);
-            return { status: 'created', beaconId: docId };
-        }
-        // Document exists, check cooldown period
-        const data = doc.data();
-        if (!data || !data.last_seen) {
-            // Data is corrupted, update it
-            await docRef.set(locationData);
-            // Create history record in subcollection
-            await docRef.collection('history').add({
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                gateway: {
-                    id: gateway.id,
-                    name: gateway.name,
-                    location: gateway.location,
-                    type: gateway.type,
-                },
-                latitude: lat,
-                longitude: lng,
-                rssi: beacon.rssi,
-                deviceUuid: beacon.uuid,
-                major: beacon.major,
-                minor: beacon.minor,
-            });
-            console.log(`Updated corrupted record for elder ${docId}`);
-            // Create alert if BOUNDARY gateway
-            if (gateway.type === 'BOUNDARY') {
-                await createBoundaryAlert(beacon, gateway, lat, lng, db);
-            }
-            // Send LINE notification to members
-            await sendLineNotification(beacon, gateway, lat, lng, timestamp, db, false);
-            return { status: 'updated', beaconId: docId };
-        }
-        // Calculate time difference
-        const lastSeenMillis = data.last_seen.toMillis();
-        const timeDiff = timestamp - lastSeenMillis;
-        const lastGatewayId = data.gateway_id;
-        // Check if this is a different gateway (elder moved to new location)
-        const isDifferentGateway = lastGatewayId !== gateway.id;
-        // If different gateway, always update (elder moved)
-        // If same gateway, check cooldown period
-        if (isDifferentGateway || timeDiff >= COOLDOWN_PERIOD_MS) {
-            // Update main document (latest location)
-            await docRef.set(locationData);
-            // Create history record in subcollection
-            await docRef.collection('history').add({
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                gateway: {
-                    id: gateway.id,
-                    name: gateway.name,
-                    location: gateway.location,
-                    type: gateway.type,
-                },
-                latitude: lat,
-                longitude: lng,
-                rssi: beacon.rssi,
-                deviceUuid: beacon.uuid,
-                major: beacon.major,
-                minor: beacon.minor,
-            });
-            const reason = isDifferentGateway
-                ? `moved to different gateway (${lastGatewayId} → ${gateway.id})`
-                : `cooldown passed (time diff: ${Math.floor(timeDiff / 1000)}s)`;
-            console.log(`Updated location for elder ${docId} at ${gateway.type} gateway (${reason})`);
-            // Create alert if BOUNDARY gateway
-            if (gateway.type === 'BOUNDARY') {
-                await createBoundaryAlert(beacon, gateway, lat, lng, db);
-            }
-            // Send LINE notification to members (subsequent location update)
-            await sendLineNotification(beacon, gateway, lat, lng, timestamp, db, false);
-            return { status: 'updated', beaconId: docId };
-        }
-        // Within cooldown period at same gateway, ignore
-        console.log(`Ignored elder ${docId} (same gateway within cooldown, time diff: ${Math.floor(timeDiff / 1000)}s)`);
-        return { status: 'ignored', beaconId: docId };
+        // 3. Handle notification based on binding type (unified) - 先處理通知
+        const notificationResult = await handleNotification(deviceId, device, beacon, gateway, lat, lng, timestamp, db);
+        // 4. Record activity to device subcollection (unified) - 再記錄活動（包含通知資訊）
+        await recordDeviceActivity(deviceId, device, beacon, gateway, lat, lng, timestamp, notificationResult, db);
+        return { status: 'updated', beaconId: deviceId };
     }
     catch (error) {
         console.error(`Error processing beacon ${beacon.uuid}:`, error);
         throw error;
     }
 }
-/**
- * Handle Map App User Beacon Detection
- * Process beacon data for map app users (not tenant-elder system)
- */
-async function handleMapUserBeacon(beacon, gateway, deviceId, mapAppUserId, lat, lng, timestamp, db) {
-    try {
-        // 1. Record activity to mapUserActivities
-        const activityData = {
-            mapAppUserId: mapAppUserId,
-            deviceId: deviceId,
-            gatewayId: gateway.id,
-            timestamp: admin.firestore.Timestamp.fromMillis(timestamp),
-            rssi: beacon.rssi,
-            latitude: lat,
-            longitude: lng,
-            triggeredNotification: false,
-            notificationPointId: null,
-        };
-        const activityRef = await db.collection('mapUserActivities').add(activityData);
-        console.log(`Recorded map user activity: ${activityRef.id} for user ${mapAppUserId}`);
-        // 2. Check if user has notification points at this gateway
-        const notifPointsSnapshot = await db
-            .collection('mapUserNotificationPoints')
-            .where('mapAppUserId', '==', mapAppUserId)
-            .where('gatewayId', '==', gateway.id)
-            .where('isActive', '==', true)
-            .limit(1)
-            .get();
-        if (notifPointsSnapshot.empty) {
-            console.log(`No notification points for user ${mapAppUserId} at gateway ${gateway.id}`);
-            return;
-        }
-        const notifPoint = notifPointsSnapshot.docs[0];
-        const notifPointData = notifPoint.data();
-        // 3. Get user FCM token
-        const userDoc = await db.collection('mapAppUsers').doc(mapAppUserId).get();
-        if (!userDoc.exists) {
-            console.log(`Map user ${mapAppUserId} not found`);
-            return;
-        }
-        const userData = userDoc.data();
-        // 4. Send FCM notification if enabled
-        if ((userData === null || userData === void 0 ? void 0 : userData.fcmToken) && (userData === null || userData === void 0 ? void 0 : userData.notificationEnabled)) {
-            try {
-                const notificationMessage = notifPointData.notificationMessage ||
-                    `您的設備已經過 ${notifPointData.name}`;
-                await admin.messaging().send({
-                    token: userData.fcmToken,
-                    notification: {
-                        title: '位置通知',
-                        body: notificationMessage,
-                    },
-                    data: {
-                        type: 'LOCATION_ALERT',
-                        gatewayId: gateway.id,
-                        gatewayName: gateway.name || '',
-                        notificationPointId: notifPoint.id,
-                        latitude: lat.toString(),
-                        longitude: lng.toString(),
-                    },
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            sound: 'default',
-                            channelId: 'location_alerts',
-                        },
-                    },
-                    apns: {
-                        payload: {
-                            aps: {
-                                sound: 'default',
-                                badge: 1,
-                            },
-                        },
-                    },
-                });
-                // Update activity record to mark notification sent
-                await activityRef.update({
-                    triggeredNotification: true,
-                    notificationPointId: notifPoint.id,
-                });
-                console.log(`Sent FCM notification to map user ${mapAppUserId} for point ${notifPointData.name}`);
-            }
-            catch (fcmError) {
-                console.error(`Failed to send FCM notification to user ${mapAppUserId}:`, fcmError);
-            }
-        }
-        else {
-            console.log(`User ${mapAppUserId} has notifications disabled or no FCM token`);
-        }
-    }
-    catch (error) {
-        console.error(`Error in handleMapUserBeacon for user ${mapAppUserId}:`, error);
-    }
-}
+// OLD FUNCTION REMOVED - Now using handleMapUserNotification
 /**
  * Main Cloud Function: Receive Beacon Data
  *

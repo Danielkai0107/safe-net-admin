@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMapUserProfile = exports.getMapUserActivities = exports.updateMapUserNotificationPoint = exports.getMapUserNotificationPoints = exports.removeMapUserNotificationPoint = exports.addMapUserNotificationPoint = exports.getPublicGateways = exports.unbindDeviceFromMapUser = exports.bindDeviceToMapUser = exports.updateMapUserFcmToken = exports.mapUserAuth = exports.getServiceUuids = exports.getDeviceWhitelist = exports.receiveBeaconData = exports.getTenantFollowers = exports.verifyUserTenant = exports.lineWebhook = exports.checkInactiveElders = exports.completeAlert = exports.declineAlertAssignment = exports.acceptAlertAssignment = exports.assignAlert = void 0;
+exports.getMapUserProfile = exports.getMapUserActivities = exports.updateMapUserNotificationPoint = exports.getMapUserNotificationPoints = exports.removeMapUserNotificationPoint = exports.addMapUserNotificationPoint = exports.getPublicGateways = exports.updateMapUserDevice = exports.unbindDeviceFromMapUser = exports.bindDeviceToMapUser = exports.updateMapUserFcmToken = exports.mapUserAuth = exports.getServiceUuids = exports.getDeviceWhitelist = exports.receiveBeaconData = exports.getTenantFollowers = exports.verifyUserTenant = exports.lineWebhook = exports.checkInactiveElders = exports.completeAlert = exports.declineAlertAssignment = exports.acceptAlertAssignment = exports.assignAlert = void 0;
 const admin = __importStar(require("firebase-admin"));
 const assignment_1 = require("./alerts/assignment");
 Object.defineProperty(exports, "assignAlert", { enumerable: true, get: function () { return assignment_1.assignAlert; } });
@@ -64,6 +64,8 @@ Object.defineProperty(exports, "updateMapUserFcmToken", { enumerable: true, get:
 const deviceBinding_1 = require("./mapApp/deviceBinding");
 Object.defineProperty(exports, "bindDeviceToMapUser", { enumerable: true, get: function () { return deviceBinding_1.bindDeviceToMapUser; } });
 Object.defineProperty(exports, "unbindDeviceFromMapUser", { enumerable: true, get: function () { return deviceBinding_1.unbindDeviceFromMapUser; } });
+const deviceUpdate_1 = require("./mapApp/deviceUpdate");
+Object.defineProperty(exports, "updateMapUserDevice", { enumerable: true, get: function () { return deviceUpdate_1.updateMapUserDevice; } });
 const gateways_1 = require("./mapApp/gateways");
 Object.defineProperty(exports, "getPublicGateways", { enumerable: true, get: function () { return gateways_1.getPublicGateways; } });
 const notificationPoints_1 = require("./mapApp/notificationPoints");

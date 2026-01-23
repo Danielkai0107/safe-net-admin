@@ -87,12 +87,12 @@ export const getMapUserProfile = onRequest(async (req, res) => {
         boundDevice = {
           id: userData.boundDeviceId,
           deviceName: deviceData?.deviceName || `${deviceData?.major}-${deviceData?.minor}`,
-          nickname: userData?.deviceNickname || null,
-          age: userData?.deviceOwnerAge || null,
+          nickname: deviceData?.mapUserNickname || null,  // 從 Device 取得
+          age: deviceData?.mapUserAge || null,            // 從 Device 取得
           uuid: deviceData?.uuid,
           major: deviceData?.major,
           minor: deviceData?.minor,
-          boundAt: userData?.boundAt?.toDate()?.toISOString() || null,
+          boundAt: deviceData?.boundAt?.toDate?.() ? deviceData.boundAt.toDate().toISOString() : null,  // 從 Device 取得
         };
       }
     }

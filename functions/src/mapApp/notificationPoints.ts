@@ -87,7 +87,7 @@ export const addMapUserNotificationPoint = onRequest(async (req, res) => {
       return;
     }
     
-    // No need to check poolType - all gateways can be used for notifications
+    // All active gateways can be used for notifications
 
     // Create notification point
     const notificationPoint = {

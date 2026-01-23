@@ -96,12 +96,23 @@ exports.getMapUserActivities = (0, https_1.onRequest)(async (req, res) => {
             res.status(404).json({ success: false, error: 'User not found' });
             return;
         }
+        const userData = userDoc.data();
+        // Check if user has a bound device
+        if (!(userData === null || userData === void 0 ? void 0 : userData.boundDeviceId)) {
+            res.json({
+                success: true,
+                activities: [],
+                count: 0,
+                timestamp: Date.now(),
+            });
+            return;
+        }
         // Parse query parameters
         const limit = limitStr ? Math.min(parseInt(limitStr), 1000) : 100;
-        // Build query
+        // Build query - now query from device subcollection
         let query = db
-            .collection('mapUserActivities')
-            .where('mapAppUserId', '==', userId)
+            .collection('devices').doc(userData.boundDeviceId)
+            .collection('activities')
             .orderBy('timestamp', 'desc');
         // Add time range filters if provided
         if (startTimeStr) {
@@ -119,7 +130,7 @@ exports.getMapUserActivities = (0, https_1.onRequest)(async (req, res) => {
         const activities = await Promise.all(activitiesSnapshot.docs.map(async (doc) => {
             var _a;
             const data = doc.data();
-            // Get gateway info
+            // Get gateway info (optional, can use cached gatewayName)
             let gatewayInfo = null;
             if (data.gatewayId) {
                 const gatewayDoc = await db.collection('gateways').doc(data.gatewayId).get();
@@ -135,16 +146,21 @@ exports.getMapUserActivities = (0, https_1.onRequest)(async (req, res) => {
             }
             return {
                 id: doc.id,
-                deviceId: data.deviceId,
+                deviceId: userData.boundDeviceId,
                 gatewayId: data.gatewayId,
-                gatewayName: (gatewayInfo === null || gatewayInfo === void 0 ? void 0 : gatewayInfo.name) || 'Unknown',
+                gatewayName: data.gatewayName || (gatewayInfo === null || gatewayInfo === void 0 ? void 0 : gatewayInfo.name) || 'Unknown',
                 gatewayLocation: gatewayInfo === null || gatewayInfo === void 0 ? void 0 : gatewayInfo.location,
+                gatewayType: data.gatewayType || (gatewayInfo === null || gatewayInfo === void 0 ? void 0 : gatewayInfo.type),
                 timestamp: (_a = data.timestamp) === null || _a === void 0 ? void 0 : _a.toDate().toISOString(),
                 rssi: data.rssi,
                 latitude: data.latitude,
                 longitude: data.longitude,
+                bindingType: data.bindingType || 'MAP_USER',
+                boundTo: data.boundTo || userId,
                 triggeredNotification: data.triggeredNotification || false,
-                notificationPointId: data.notificationPointId,
+                notificationType: data.notificationType || null,
+                notificationDetails: data.notificationDetails || null,
+                notificationPointId: data.notificationPointId || null,
             };
         }));
         res.json({

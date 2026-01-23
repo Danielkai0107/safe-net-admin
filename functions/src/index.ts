@@ -13,6 +13,7 @@ import { getServiceUuids } from './uuids/getServiceUuids';
 import { mapUserAuth } from './mapApp/auth';
 import { updateMapUserFcmToken } from './mapApp/fcmToken';
 import { bindDeviceToMapUser, unbindDeviceFromMapUser } from './mapApp/deviceBinding';
+import { updateMapUserDevice } from './mapApp/deviceUpdate';
 import { getPublicGateways } from './mapApp/gateways';
 import { 
   addMapUserNotificationPoint,
@@ -47,6 +48,7 @@ export {
   updateMapUserFcmToken,
   bindDeviceToMapUser,
   unbindDeviceFromMapUser,
+  updateMapUserDevice,
   getPublicGateways,
   addMapUserNotificationPoint,
   removeMapUserNotificationPoint,

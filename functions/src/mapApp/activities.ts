@@ -71,13 +71,26 @@ export const getMapUserActivities = onRequest(async (req, res) => {
       return;
     }
 
+    const userData = userDoc.data();
+    
+    // Check if user has a bound device
+    if (!userData?.boundDeviceId) {
+      res.json({
+        success: true,
+        activities: [],
+        count: 0,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
     // Parse query parameters
     const limit = limitStr ? Math.min(parseInt(limitStr), 1000) : 100;
     
-    // Build query
+    // Build query - now query from device subcollection
     let query = db
-      .collection('mapUserActivities')
-      .where('mapAppUserId', '==', userId)
+      .collection('devices').doc(userData.boundDeviceId)
+      .collection('activities')
       .orderBy('timestamp', 'desc');
 
     // Add time range filters if provided
@@ -101,7 +114,7 @@ export const getMapUserActivities = onRequest(async (req, res) => {
       activitiesSnapshot.docs.map(async (doc) => {
         const data = doc.data();
         
-        // Get gateway info
+        // Get gateway info (optional, can use cached gatewayName)
         let gatewayInfo = null;
         if (data.gatewayId) {
           const gatewayDoc = await db.collection('gateways').doc(data.gatewayId).get();
@@ -118,16 +131,21 @@ export const getMapUserActivities = onRequest(async (req, res) => {
 
         return {
           id: doc.id,
-          deviceId: data.deviceId,
+          deviceId: userData.boundDeviceId,
           gatewayId: data.gatewayId,
-          gatewayName: gatewayInfo?.name || 'Unknown',
+          gatewayName: data.gatewayName || gatewayInfo?.name || 'Unknown',
           gatewayLocation: gatewayInfo?.location,
+          gatewayType: data.gatewayType || gatewayInfo?.type,
           timestamp: data.timestamp?.toDate().toISOString(),
           rssi: data.rssi,
           latitude: data.latitude,
           longitude: data.longitude,
+          bindingType: data.bindingType || 'MAP_USER',
+          boundTo: data.boundTo || userId,
           triggeredNotification: data.triggeredNotification || false,
-          notificationPointId: data.notificationPointId,
+          notificationType: data.notificationType || null,
+          notificationDetails: data.notificationDetails || null,
+          notificationPointId: data.notificationPointId || null,
         };
       })
     );

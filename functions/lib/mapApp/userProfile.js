@@ -111,12 +111,12 @@ exports.getMapUserProfile = (0, https_1.onRequest)(async (req, res) => {
                 boundDevice = {
                     id: userData.boundDeviceId,
                     deviceName: (deviceData === null || deviceData === void 0 ? void 0 : deviceData.deviceName) || `${deviceData === null || deviceData === void 0 ? void 0 : deviceData.major}-${deviceData === null || deviceData === void 0 ? void 0 : deviceData.minor}`,
-                    nickname: (userData === null || userData === void 0 ? void 0 : userData.deviceNickname) || null,
-                    age: (userData === null || userData === void 0 ? void 0 : userData.deviceOwnerAge) || null,
+                    nickname: (deviceData === null || deviceData === void 0 ? void 0 : deviceData.mapUserNickname) || null, // 從 Device 取得
+                    age: (deviceData === null || deviceData === void 0 ? void 0 : deviceData.mapUserAge) || null, // 從 Device 取得
                     uuid: deviceData === null || deviceData === void 0 ? void 0 : deviceData.uuid,
                     major: deviceData === null || deviceData === void 0 ? void 0 : deviceData.major,
                     minor: deviceData === null || deviceData === void 0 ? void 0 : deviceData.minor,
-                    boundAt: ((_c = (_b = userData === null || userData === void 0 ? void 0 : userData.boundAt) === null || _b === void 0 ? void 0 : _b.toDate()) === null || _c === void 0 ? void 0 : _c.toISOString()) || null,
+                    boundAt: ((_c = (_b = deviceData === null || deviceData === void 0 ? void 0 : deviceData.boundAt) === null || _b === void 0 ? void 0 : _b.toDate) === null || _c === void 0 ? void 0 : _c.call(_b)) ? deviceData.boundAt.toDate().toISOString() : null, // 從 Device 取得
                 };
             }
         }
