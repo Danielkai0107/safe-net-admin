@@ -18,11 +18,12 @@ import {
 import type { Elder, Activity } from '../types';
 
 export const elderService = {
-  // 獲取社區的所有長者
+  // 獲取社區的所有長者（只顯示 isActive = true 的長輩）
   getAll: async (tenantId: string) => {
     try {
       const constraints: any[] = [
         where('tenantId', '==', tenantId),
+        where('isActive', '==', true),
         orderBy('createdAt', 'desc')
       ];
       const elders = await getAllDocuments<Elder>('elders', constraints);
@@ -33,10 +34,11 @@ export const elderService = {
     }
   },
 
-  // 訂閱長者列表（即時監聽）
+  // 訂閱長者列表（即時監聯，只顯示 isActive = true 的長輩）
   subscribe: (tenantId: string, callback: (data: Elder[]) => void) => {
     const constraints: any[] = [
       where('tenantId', '==', tenantId),
+      where('isActive', '==', true),
       orderBy('createdAt', 'desc')
     ];
     return subscribeToCollection<Elder>('elders', constraints, callback);
