@@ -73,7 +73,11 @@ export const DeviceDetailPage = () => {
         setDevice(deviceRes.data);
 
         // 如果綁定了長者，載入長者資訊
-        if (deviceRes.data && deviceRes.data.bindingType === "ELDER" && deviceRes.data.boundTo) {
+        if (
+          deviceRes.data &&
+          deviceRes.data.bindingType === "ELDER" &&
+          deviceRes.data.boundTo
+        ) {
           try {
             const elderRes = await elderService.getOne(deviceRes.data.boundTo);
             setElder(elderRes.data);
@@ -135,7 +139,7 @@ export const DeviceDetailPage = () => {
     };
 
     const labels = {
-      ELDER: "👴 已綁定長者",
+      ELDER: "已綁定長者",
       MAP_USER: "已綁定APP用戶",
       UNBOUND: "未綁定",
     };

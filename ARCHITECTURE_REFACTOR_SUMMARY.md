@@ -165,7 +165,7 @@ boundAt: timestamp,
 ```typescript
 const getBindingStatusBadge = (device: Device) => {
   switch (device.bindingType) {
-    case 'ELDER': return <Badge>👴 已綁定長者</Badge>;
+    case 'ELDER': return <Badge>已綁定長者</Badge>;
     case 'MAP_USER': return <Badge>已綁定APP用戶</Badge>;
     case 'UNBOUND': return <Badge>未綁定</Badge>;
   }

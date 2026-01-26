@@ -1005,64 +1005,117 @@ async function handleMapUserNotification(
       return { triggered: false, type: null };
     }
 
-    // 1. Check if user has notification points at this gateway
-    const notifPointsSnapshot = await db
-      .collection("mapUserNotificationPoints")
-      .where("mapAppUserId", "==", mapAppUserId)
+    // 統一通知架構：從設備獲取通知點和 token
+    const deviceDoc = await db.collection("devices").doc(deviceId).get();
+    const deviceData = deviceDoc.data();
+
+    // 1. 檢查是否為通知點（優先檢查設備子集合，其次檢查繼承的通知點）
+    let isNotificationPoint = false;
+    let notificationPointName = "";
+    let notificationMessage = "";
+    let notificationPointId = "";
+
+    // 1a. 檢查設備的自訂通知點子集合
+    const deviceNotifPointsSnapshot = await db
+      .collection("devices")
+      .doc(deviceId)
+      .collection("notificationPoints")
       .where("gatewayId", "==", gateway.id)
       .where("isActive", "==", true)
       .limit(1)
       .get();
 
-    if (notifPointsSnapshot.empty) {
+    if (!deviceNotifPointsSnapshot.empty) {
+      isNotificationPoint = true;
+      const notifPoint = deviceNotifPointsSnapshot.docs[0];
+      const notifPointData = notifPoint.data();
+      notificationPointName = notifPointData.name || gateway.name || "通知點";
+      notificationMessage = notifPointData.notificationMessage || "";
+      notificationPointId = notifPoint.id;
+      console.log(`Found device notification point: ${notificationPointName}`);
+    }
+
+    // 1b. 檢查繼承的通知點
+    if (!isNotificationPoint && deviceData?.inheritedNotificationPointIds) {
+      const inheritedIds = deviceData.inheritedNotificationPointIds as string[];
+      if (inheritedIds.includes(gateway.id)) {
+        isNotificationPoint = true;
+        notificationPointName = gateway.name || "通知點";
+        console.log(`Gateway ${gateway.id} is in inherited notification points`);
+      }
+    }
+
+    // 1c. Fallback：檢查舊的 appUserNotificationPoints（向後相容）
+    if (!isNotificationPoint) {
+      const legacyNotifPointsSnapshot = await db
+        .collection("appUserNotificationPoints")
+        .where("mapAppUserId", "==", mapAppUserId)
+        .where("gatewayId", "==", gateway.id)
+        .where("isActive", "==", true)
+        .limit(1)
+        .get();
+
+      if (!legacyNotifPointsSnapshot.empty) {
+        isNotificationPoint = true;
+        const notifPoint = legacyNotifPointsSnapshot.docs[0];
+        const notifPointData = notifPoint.data();
+        notificationPointName = notifPointData.name || gateway.name || "通知點";
+        notificationMessage = notifPointData.notificationMessage || "";
+        notificationPointId = notifPoint.id;
+        console.log(`Found legacy notification point: ${notificationPointName}`);
+      }
+    }
+
+    if (!isNotificationPoint) {
       console.log(
-        `No notification points for user ${mapAppUserId} at gateway ${gateway.id}`,
+        `No notification points for device ${deviceId} at gateway ${gateway.id}`,
       );
       return { triggered: false, type: null };
     }
 
-    const notifPoint = notifPointsSnapshot.docs[0];
-    const notifPointData = notifPoint.data();
+    // 2. 統一通知架構：優先使用設備的 FCM token
+    let fcmToken: string | null = null;
+    let tokenSource = "";
 
-    // 2. Get user FCM token
-    const userDoc = await db.collection("app_users").doc(mapAppUserId).get();
-    if (!userDoc.exists) {
-      console.log(`Map user ${mapAppUserId} not found`);
-      // 即使用戶不存在，仍記錄這是通知點
-      return {
-        triggered: false,
-        type: null,
-        pointId: notifPoint.id, // 記錄通知點 ID
-        details: {
-          notificationPointName: notifPointData.name,
-          reason: "User not found",
-        },
-      };
+    if (deviceData?.fcmToken && deviceData?.notificationEnabled) {
+      fcmToken = deviceData.fcmToken;
+      tokenSource = "device";
+      console.log(`Using device FCM token for device ${deviceId}`);
+    } else {
+      // Fallback：使用用戶的 FCM token（向後相容）
+      const userDoc = await db.collection("app_users").doc(mapAppUserId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        if (userData?.fcmToken && userData?.notificationEnabled) {
+          fcmToken = userData.fcmToken;
+          tokenSource = "user";
+          console.log(`Fallback to user FCM token for user ${mapAppUserId}`);
+        }
+      }
     }
 
-    const userData = userDoc.data();
-
     // 3. Send FCM notification
-    if (userData?.fcmToken && userData?.notificationEnabled) {
+    if (fcmToken) {
       try {
-        const notificationMessage =
-          notifPointData.notificationMessage ||
-          `您的設備已經過 ${notifPointData.name}`;
+        const finalNotificationMessage =
+          notificationMessage ||
+          `您的設備已經過 ${notificationPointName}`;
 
         await admin.messaging().send({
-          token: userData.fcmToken,
+          token: fcmToken,
           notification: {
             title: "位置通知",
-            body: notificationMessage,
+            body: finalNotificationMessage,
           },
           data: {
             type: "LOCATION_ALERT",
             gatewayId: gateway.id,
             gatewayName: gateway.name || "",
             deviceId: deviceId,
-            notificationPointId: notifPoint.id,
+            notificationPointId: notificationPointId,
             latitude: lat.toString(),
             longitude: lng.toString(),
+            tokenSource: tokenSource,  // 記錄 token 來源
           },
           android: {
             priority: "high",
@@ -1081,49 +1134,48 @@ async function handleMapUserNotification(
           },
         });
 
-        console.log(`Sent FCM notification to map user ${mapAppUserId}`);
+        console.log(`Sent FCM notification (token source: ${tokenSource})`);
 
         return {
           triggered: true,
           type: "FCM",
-          pointId: notifPoint.id,
+          pointId: notificationPointId,
           details: {
             mapAppUserId: mapAppUserId,
-            notificationPointName: notifPointData.name,
-            message: notificationMessage,
+            notificationPointName: notificationPointName,
+            message: finalNotificationMessage,
+            tokenSource: tokenSource,
           },
         };
       } catch (fcmError) {
         console.error(
-          `Failed to send FCM notification to user ${mapAppUserId}:`,
+          `Failed to send FCM notification (token source: ${tokenSource}):`,
           fcmError,
         );
         // 發送失敗仍記錄這是通知點
         return {
           triggered: false,
           type: null,
-          pointId: notifPoint.id,
+          pointId: notificationPointId,
           details: {
-            notificationPointName: notifPointData.name,
+            notificationPointName: notificationPointName,
             reason: "FCM send failed",
+            tokenSource: tokenSource,
           },
         };
       }
     } else {
-      // 用戶關閉通知或沒有 token，仍記錄這是通知點
+      // 設備和用戶都沒有可用的 token，仍記錄這是通知點
       console.log(
-        `User ${mapAppUserId} has notifications disabled or no FCM token`,
+        `Device ${deviceId} and user ${mapAppUserId} have no available FCM token`,
       );
       return {
         triggered: false,
         type: null,
-        pointId: notifPoint.id, // 重點：記錄通知點 ID
+        pointId: notificationPointId, // 重點：記錄通知點 ID
         details: {
-          notificationPointName: notifPointData.name,
-          reason:
-            userData?.notificationEnabled === false
-              ? "Notifications disabled"
-              : "No FCM token",
+          notificationPointName: notificationPointName,
+          reason: "No FCM token available (device or user)",
         },
       };
     }

@@ -19,6 +19,7 @@ import {
   toPaginatedResponse,
 } from "../lib/firestore";
 import type { Device } from "../types";
+import { anonymizeDeviceActivities } from "../utils/anonymizeDeviceActivities";
 
 // 生成設備序號：6碼大寫英文字母 + 4碼數字
 const generateDeviceSerial = (): string => {
@@ -248,6 +249,32 @@ export const deviceService = {
         uuid: data.uuid ? data.uuid.toLowerCase() : data.uuid,
       };
 
+      // 統一通知架構：如果有社區 tag，查詢並設定 inheritedNotificationPointIds
+      let inheritedNotificationPointIds: string[] | null = null;
+      
+      if (normalizedData.tags && normalizedData.tags.length > 0) {
+        const tenantId = normalizedData.tags[0]; // 取第一個 tag 作為社區 ID
+        console.log(`Device create: querying notification points for tenant ${tenantId}`);
+        
+        try {
+          const notificationPointsQuery = query(
+            collection(db, 'tenantNotificationPoints'),
+            where('tenantId', '==', tenantId),
+            where('isActive', '==', true)
+          );
+          const notificationPointsSnapshot = await getDocs(notificationPointsQuery);
+          const gatewayIds = notificationPointsSnapshot.docs.map(doc => doc.data().gatewayId as string);
+          
+          if (gatewayIds.length > 0) {
+            inheritedNotificationPointIds = gatewayIds;
+            console.log(`Device create: found ${gatewayIds.length} notification points for tenant ${tenantId}`);
+          }
+        } catch (error) {
+          console.error(`Failed to query notification points for tenant ${tenantId}:`, error);
+          // 繼續創建設備，即使查詢失敗
+        }
+      }
+
       const id = await createDocument("devices", {
         ...normalizedData,
         type: normalizedData.type || "GENERIC_BLE",
@@ -255,6 +282,7 @@ export const deviceService = {
         boundTo: null,
         boundAt: null,
         tags: normalizedData.tags || [], // 標籤（例如社區 ID）
+        inheritedNotificationPointIds: inheritedNotificationPointIds, // 統一通知架構：繼承通知點
         mapUserNickname: null,
         mapUserAge: null,
         mapUserGender: null,
@@ -276,9 +304,58 @@ export const deviceService = {
   update: async (id: string, data: Partial<Device>) => {
     try {
       // Normalize UUID to lowercase if provided
-      const normalizedData = data.uuid
-        ? { ...data, uuid: data.uuid.toLowerCase() }
-        : data;
+      const normalizedData = { ...data };
+      if (normalizedData.uuid) {
+        normalizedData.uuid = normalizedData.uuid.toLowerCase();
+      }
+
+      // 統一通知架構：檢查 tags 變更，同步 inheritedNotificationPointIds
+      if (normalizedData.tags !== undefined) {
+        console.log(`Device ${id}: checking tags for changes...`);
+        
+        const currentDevice = await getDocument<Device>("devices", id);
+        const oldTags = currentDevice?.tags || [];
+        const newTags = normalizedData.tags || [];
+        
+        console.log(`Device ${id}: oldTags = [${oldTags.join(', ')}], newTags = [${newTags.join(', ')}]`);
+        
+        // 檢查是否有社區 tag 變更
+        const tagsChanged = 
+          oldTags.length !== newTags.length ||
+          !oldTags.every(tag => newTags.includes(tag)) ||
+          !newTags.every(tag => oldTags.includes(tag));
+        
+        if (tagsChanged) {
+          console.log(`Device ${id}: tags changed from [${oldTags.join(', ')}] to [${newTags.join(', ')}]`);
+          
+          // 如果移除了所有 tag 或清空 tag
+          if (newTags.length === 0) {
+            // 清空繼承的通知點
+            (normalizedData as any).inheritedNotificationPointIds = null;
+            console.log(`Device ${id}: cleared inheritedNotificationPointIds (no tags)`);
+          } else {
+            // 如果有新的社區 tag，重新查詢通知點
+            const tenantId = newTags[0]; // 取第一個 tag 作為社區 ID
+            console.log(`Device ${id}: querying notification points for tenant ${tenantId}`);
+            
+            const notificationPointsQuery = query(
+              collection(db, 'tenantNotificationPoints'),
+              where('tenantId', '==', tenantId),
+              where('isActive', '==', true)
+            );
+            const notificationPointsSnapshot = await getDocs(notificationPointsQuery);
+            const gatewayIds = notificationPointsSnapshot.docs.map(doc => doc.data().gatewayId as string);
+            
+            console.log(`Device ${id}: found ${gatewayIds.length} notification points for tenant ${tenantId}`);
+            
+            // 更新繼承的通知點
+            (normalizedData as any).inheritedNotificationPointIds = gatewayIds.length > 0 ? gatewayIds : null;
+            console.log(`Device ${id}: updated inheritedNotificationPointIds = [${gatewayIds.join(', ')}]`);
+          }
+        } else {
+          console.log(`Device ${id}: tags unchanged, skipping notification points sync`);
+        }
+      }
 
       await updateDocument("devices", id, normalizedData);
       const device = await getDocument<Device>("devices", id);
@@ -310,6 +387,17 @@ export const deviceService = {
 
       if (!elderId) {
         // 解綁：將設備設為 UNBOUND
+        
+        // 先匿名化活動記錄（在 batch 操作前執行）
+        console.log(`Anonymizing activities for device ${deviceId} before unbinding...`);
+        try {
+          const activitiesArchived = await anonymizeDeviceActivities(deviceId, "ELDER_UNBIND");
+          console.log(`Archived ${activitiesArchived} activities for device ${deviceId}`);
+        } catch (error) {
+          console.error(`Failed to anonymize activities for device ${deviceId}:`, error);
+          // 繼續執行解綁，即使匿名化失敗
+        }
+        
         const eldersQuery = query(
           collection(db, "elders"),
           where("deviceId", "==", deviceId),
@@ -427,15 +515,28 @@ export const deviceService = {
   // 解除設備綁定（通用方法，支援 ELDER 和 MAP_USER）
   unbindDevice: async (deviceId: string) => {
     try {
-      const batch = writeBatch(db);
-      const timestamp = serverTimestamp();
-
       // 取得設備資料
       const device = await getDocument<Device>("devices", deviceId);
       if (!device) {
         throw new Error("找不到設備");
       }
 
+      // 統一匿名化：先匿名化活動記錄（在解綁前執行）
+      console.log(`Anonymizing activities for device ${deviceId} before unbinding...`);
+      const unbindReason = device.bindingType === "ELDER" ? "ELDER_UNBIND" : 
+                           device.bindingType === "MAP_USER" ? "MAP_USER_UNBIND" : 
+                           "DEVICE_UNBIND";
+      
+      try {
+        const activitiesArchived = await anonymizeDeviceActivities(deviceId, unbindReason);
+        console.log(`Archived ${activitiesArchived} activities for device ${deviceId}`);
+      } catch (error) {
+        console.error(`Failed to anonymize activities for device ${deviceId}:`, error);
+        // 繼續執行解綁，即使匿名化失敗
+      }
+
+      const batch = writeBatch(db);
+      const timestamp = serverTimestamp();
       const deviceRef = doc(db, "devices", deviceId);
 
       if (device.bindingType === "ELDER" && device.boundTo) {

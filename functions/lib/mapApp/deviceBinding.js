@@ -257,10 +257,8 @@ exports.bindDeviceToMapUser = (0, https_1.onRequest)(async (req, res) => {
         }
         // Bind device to user (使用新的資料結構)
         const boundAt = admin.firestore.FieldValue.serverTimestamp();
-        await db
-            .collection("devices")
-            .doc(actualDeviceId)
-            .update({
+        // 統一通知架構：綁定時同步 FCM token 到設備
+        const deviceUpdateData = {
             bindingType: "MAP_USER",
             boundTo: body.userId,
             boundAt: boundAt,
@@ -268,7 +266,17 @@ exports.bindDeviceToMapUser = (0, https_1.onRequest)(async (req, res) => {
             mapUserAge: body.age || null,
             mapUserGender: body.gender || null,
             updatedAt: boundAt,
-        });
+        };
+        // 如果用戶有 FCM token，同步到設備
+        if (userData === null || userData === void 0 ? void 0 : userData.fcmToken) {
+            deviceUpdateData.fcmToken = userData.fcmToken;
+            deviceUpdateData.notificationEnabled = true;
+            console.log(`Syncing FCM token to device ${actualDeviceId}`);
+        }
+        await db
+            .collection("devices")
+            .doc(actualDeviceId)
+            .update(deviceUpdateData);
         // Update user's bound device and avatar
         const userUpdateData = {
             boundDeviceId: actualDeviceId,
@@ -474,7 +482,28 @@ exports.unbindDeviceFromMapUser = (0, https_1.onRequest)(async (req, res) => {
             activitiesSnapshot = await activitiesRef.limit(500).get();
             await archiveAndDeleteActivities(activitiesSnapshot);
         }
-        // 2. Unbind device (使用新的資料結構)
+        // 2. 統一通知架構：刪除設備的通知點子集合
+        const notificationPointsRef = db
+            .collection("devices")
+            .doc(deviceId)
+            .collection("notificationPoints");
+        const deleteNotificationPoints = async (snapshot) => {
+            if (snapshot.empty)
+                return;
+            const batch = db.batch();
+            snapshot.docs.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+        };
+        // 刪除所有通知點（分批處理）
+        let notificationPointsSnapshot = await notificationPointsRef.limit(500).get();
+        await deleteNotificationPoints(notificationPointsSnapshot);
+        while (notificationPointsSnapshot.size === 500) {
+            notificationPointsSnapshot = await notificationPointsRef.limit(500).get();
+            await deleteNotificationPoints(notificationPointsSnapshot);
+        }
+        // 3. Unbind device (使用新的資料結構，清除通知相關欄位)
         await db.collection("devices").doc(deviceId).update({
             bindingType: "UNBOUND",
             boundTo: null,
@@ -482,9 +511,13 @@ exports.unbindDeviceFromMapUser = (0, https_1.onRequest)(async (req, res) => {
             mapUserNickname: null,
             mapUserAge: null,
             mapUserGender: null,
+            // 統一通知架構：清除通知相關欄位
+            fcmToken: null,
+            notificationEnabled: null,
+            inheritedNotificationPointIds: null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        // 3. Update user (只清空 boundDeviceId)
+        // 4. Update user (只清空 boundDeviceId)
         await db.collection("app_users").doc(body.userId).update({
             boundDeviceId: null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),

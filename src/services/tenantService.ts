@@ -280,12 +280,28 @@ export const tenantService = {
   // 分配設備到社區
   assignDevices: async (id: string, deviceIds: string[]) => {
     try {
-      // 批量更新設備的 tenantId
-      await Promise.all(
-        deviceIds.map(deviceId =>
-          updateDocument('devices', deviceId, { tenantId: id })
-        )
+      // 統一通知架構：查詢社區的通知點
+      const notificationPointsQuery = query(
+        collection(db, 'tenantNotificationPoints'),
+        where('tenantId', '==', id),
+        where('isActive', '==', true)
       );
+      const notificationPointsSnapshot = await getDocs(notificationPointsQuery);
+      const gatewayIds = notificationPointsSnapshot.docs.map(doc => doc.data().gatewayId);
+
+      // 批量更新設備：設定社區關聯和繼承通知點
+      await Promise.all(
+        deviceIds.map(async deviceId => {
+          const updateData: any = { 
+            tenantId: id,  // 舊架構，向後相容
+            tags: [id],    // 新架構
+            inheritedNotificationPointIds: gatewayIds.length > 0 ? gatewayIds : null,
+          };
+
+          await updateDocument('devices', deviceId, updateData);
+        })
+      );
+      
       return { data: { success: true } };
     } catch (error) {
       console.error('Failed to assign devices:', error);
@@ -296,8 +312,12 @@ export const tenantService = {
   // 移除設備
   removeDevice: async (_tenantId: string, deviceId: string) => {
     try {
-      // 將設備的 tenantId 設為 null
-      await updateDocument('devices', deviceId, { tenantId: null });
+      // 統一通知架構：移除社區 tag 時清除繼承的通知點
+      await updateDocument('devices', deviceId, { 
+        tenantId: null,  // 清除舊架構
+        tags: [],  // 清除新架構
+        inheritedNotificationPointIds: null,  // 清除繼承的通知點
+      });
       return { data: { success: true } };
     } catch (error) {
       console.error('Failed to remove device:', error);

@@ -131,6 +131,10 @@ export interface Device {
   mapUserGender?: 'MALE' | 'FEMALE' | 'OTHER' | null;
   // 標籤（取代 tenantId）
   tags: string[];                   // 例如：["tenant_dalove_001", "批次2024"]
+  // 通知相關欄位（統一通知架構）
+  fcmToken?: string | null;                     // FCM 推送 token（從 app_users 移過來）
+  notificationEnabled?: boolean;                // 是否啟用通知
+  inheritedNotificationPointIds?: string[];     // 從社區繼承的通知點 gateway IDs
   // 輔助欄位
   macAddress?: string;    // 選填 - Beacon MAC 會隨機變化，僅供參考
   // 裝置狀態
@@ -150,6 +154,16 @@ export const DeviceType = {
   EDDYSTONE: "EDDYSTONE",
   GENERIC_BLE: "GENERIC_BLE",
 } as const;
+
+// 設備的自訂通知點（子集合：devices/{deviceId}/notificationPoints/{pointId}）
+export interface DeviceNotificationPoint {
+  id: string;
+  gatewayId: string;
+  name: string;
+  notificationMessage?: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
 
 // 裝置綁定類型
 export type DeviceBindingType = "ELDER" | "MAP_USER" | "UNBOUND" | "ANONYMOUS";

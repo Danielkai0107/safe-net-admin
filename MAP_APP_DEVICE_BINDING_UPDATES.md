@@ -360,7 +360,7 @@ firebase deploy --only functions:bindDeviceToMapUser,functions:unbindDeviceFromM
 ```
 | 綁定狀態 | 池類型 | 類型 | 電量 |
 | -------- | ------ | ---- | ---- |
-| 👴 已綁定長者 | 🏢 TENANT | iBeacon | 85% |
+| 已綁定長者 | 🏢 TENANT | iBeacon | 85% |
 | 未分配 | 🌍 PUBLIC | iBeacon | 92% |
 ```
 

@@ -181,7 +181,7 @@ export const DevicesPage = () => {
 
     reset({
       deviceName: device.deviceName || "",
-      uuid: device.uuid || "",
+      uuid: device.uuid ? device.uuid.toLowerCase() : "", // 統一轉為小寫以匹配 select options
       type: device.type || "IBEACON",
       tenantTag: device.tags?.[0] || "", // 取第一個社區標籤
       batteryLevel: device.batteryLevel || 0,
@@ -382,7 +382,7 @@ export const DevicesPage = () => {
       case "ELDER":
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            👴 已綁定長者
+            已綁定長者
           </span>
         );
       case "MAP_USER":
@@ -437,7 +437,6 @@ export const DevicesPage = () => {
             className="btn-secondary flex items-center space-x-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
             title="清理綁定到不存在長者的設備"
           >
-            <span></span>
             <span>清理暫存</span>
           </button>
           {selectedDevices.length > 0 && (
@@ -723,7 +722,7 @@ export const DevicesPage = () => {
               >
                 <option value="">請選擇 UUID</option>
                 {uuids.map((uuid) => (
-                  <option key={uuid.id} value={uuid.uuid}>
+                  <option key={uuid.id} value={uuid.uuid.toLowerCase()}>
                     {uuid.name} - {uuid.uuid}
                   </option>
                 ))}
@@ -753,10 +752,7 @@ export const DevicesPage = () => {
 
             <div>
               <label className="label">所屬社區</label>
-              <select
-                {...register("tenantTag")}
-                className="input"
-              >
+              <select {...register("tenantTag")} className="input">
                 <option value="">請選擇社區</option>
                 {tenants.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>

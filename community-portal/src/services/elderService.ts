@@ -15,6 +15,7 @@ import {
   subscribeToCollection,
 } from '../lib/firestore';
 import type { Elder } from '../types';
+import { anonymizeDeviceActivities } from '../utils/anonymizeDeviceActivities';
 
 export const elderService = {
   // 獲取社區的所有長者
@@ -95,7 +96,39 @@ export const elderService = {
   // 刪除長者（軟刪除）
   delete: async (id: string) => {
     try {
-      await updateDocument('elders', id, { isActive: false });
+      // 先獲取長者資料，檢查是否有綁定設備
+      const elder = await getDocument('elders', id);
+      
+      // 如果有綁定設備，先解除綁定並匿名化活動記錄
+      if ((elder as any)?.deviceId) {
+        const deviceId = (elder as any).deviceId;
+        
+        // 先匿名化活動記錄
+        console.log(`Anonymizing activities for device ${deviceId} before elder deletion...`);
+        try {
+          const activitiesArchived = await anonymizeDeviceActivities(deviceId, "ELDER_DELETION");
+          console.log(`Archived ${activitiesArchived} activities for device ${deviceId}`);
+        } catch (error) {
+          console.error(`Failed to anonymize activities for device ${deviceId}:`, error);
+          // 繼續執行刪除，即使匿名化失敗
+        }
+        
+        // 解綁設備
+        await updateDocument('devices', deviceId, {
+          bindingType: 'UNBOUND',
+          boundTo: null,
+          boundAt: null,
+        });
+        
+        console.log(`Unbound device ${deviceId} from elder ${id} before deletion`);
+      }
+      
+      // 軟刪除長者
+      await updateDocument('elders', id, { 
+        isActive: false,
+        deviceId: null,  // 清除 deviceId 引用
+      });
+      
       return { data: { success: true } };
     } catch (error) {
       console.error('Failed to delete elder:', error);
@@ -151,6 +184,16 @@ export const elderService = {
   // 解綁設備
   unbindDevice: async (elderId: string, deviceId: string) => {
     try {
+      // 先匿名化活動記錄
+      console.log(`Anonymizing activities for device ${deviceId} before unbinding...`);
+      try {
+        const activitiesArchived = await anonymizeDeviceActivities(deviceId, "ELDER_UNBIND");
+        console.log(`Archived ${activitiesArchived} activities for device ${deviceId}`);
+      } catch (error) {
+        console.error(`Failed to anonymize activities for device ${deviceId}:`, error);
+        // 繼續執行解綁，即使匿名化失敗
+      }
+      
       // 更新長者記錄
       await updateDocument('elders', elderId, {
         deviceId: null,

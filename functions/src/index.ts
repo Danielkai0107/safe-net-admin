@@ -15,6 +15,7 @@ import { mapUserAuth } from './mapApp/auth';
 import { updateMapUserFcmToken } from './mapApp/fcmToken';
 import { updateMapUserAvatar } from './mapApp/updateAvatar';
 import { bindDeviceToMapUser, unbindDeviceFromMapUser } from './mapApp/deviceBinding';
+import { unbindDeviceFromElder } from './mapApp/elderBinding';
 import { updateMapUserDevice } from './mapApp/deviceUpdate';
 import { deleteMapAppUser } from './mapApp/deleteUser';
 import { getPublicGateways } from './mapApp/gateways';
@@ -57,6 +58,7 @@ export {
   updateMapUserAvatar,
   bindDeviceToMapUser,
   unbindDeviceFromMapUser,
+  unbindDeviceFromElder,
   updateMapUserDevice,
   deleteMapAppUser,
   getPublicGateways,

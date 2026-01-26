@@ -12,11 +12,11 @@ import {
   getAllDocuments,
   createDocument,
   updateDocument,
-  deleteDocument,
   subscribeToCollection,
   toPaginatedResponse,
 } from '../lib/firestore';
 import type { Elder } from '../types';
+import { anonymizeDeviceActivities } from '../utils/anonymizeDeviceActivities';
 
 export const elderService = {
   // 獲取所有長者（分頁）
@@ -26,7 +26,8 @@ export const elderService = {
       if (tenantId) {
         constraints.push(where('tenantId', '==', tenantId));
       }
-      // 不強制排序，以免遺漏缺少 createdAt 的舊資料
+      // 只顯示啟用的長者（與 Community Portal 一致）
+      constraints.push(where('isActive', '==', true));
       
       const allElders = await getAllDocuments<Elder>('elders', constraints);
       
@@ -56,7 +57,8 @@ export const elderService = {
     if (tenantId) {
       constraints.push(where('tenantId', '==', tenantId));
     }
-    // 移除 orderBy 以免過濾掉缺少 createdAt 的舊資料
+    // 只顯示啟用的長者（與 Community Portal 一致）
+    constraints.push(where('isActive', '==', true));
     
     return subscribeToCollection<Elder>('elders', constraints, (data) => {
       // 在記憶體中排序
@@ -203,10 +205,42 @@ export const elderService = {
     }
   },
 
-  // 刪除長者
+  // 刪除長者（與 Community Portal 一致：軟刪除）
   delete: async (id: string) => {
     try {
-      await deleteDocument('elders', id);
+      // 先獲取長者資料，檢查是否有綁定設備
+      const elder = await getDocument('elders', id);
+      
+      // 如果有綁定設備，先解除綁定並匿名化活動記錄
+      if ((elder as any)?.deviceId) {
+        const deviceId = (elder as any).deviceId;
+        
+        // 先匿名化活動記錄
+        console.log(`Anonymizing activities for device ${deviceId} before elder deletion...`);
+        try {
+          const activitiesArchived = await anonymizeDeviceActivities(deviceId, "ELDER_DELETION");
+          console.log(`Archived ${activitiesArchived} activities for device ${deviceId}`);
+        } catch (error) {
+          console.error(`Failed to anonymize activities for device ${deviceId}:`, error);
+          // 繼續執行刪除，即使匿名化失敗
+        }
+        
+        // 解綁設備
+        await updateDocument('devices', deviceId, {
+          bindingType: 'UNBOUND',
+          boundTo: null,
+          boundAt: null,
+        });
+        
+        console.log(`Unbound device ${deviceId} from elder ${id} before deletion`);
+      }
+      
+      // 軟刪除長者（與 Community Portal 一致）
+      await updateDocument('elders', id, {
+        isActive: false,
+        deviceId: null,
+      });
+      
       return { data: { success: true } };
     } catch (error) {
       console.error('Failed to delete elder:', error);

@@ -4,6 +4,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 // 標準錯誤碼定義
 const ErrorCodes = {
   USER_NOT_FOUND: 'USER_NOT_FOUND',
+  DEVICE_NOT_FOUND: 'DEVICE_NOT_FOUND',
   UNAUTHORIZED: 'UNAUTHORIZED',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
@@ -13,6 +14,7 @@ const ErrorCodes = {
 interface UpdateFcmTokenRequest {
   userId: string;
   fcmToken: string;
+  deviceId?: string;  // 可選，優先使用；若未提供則從 app_users.boundDeviceId 查找
 }
 
 /**
@@ -22,9 +24,14 @@ interface UpdateFcmTokenRequest {
  * Request Body:
  * - userId: string
  * - fcmToken: string
+ * - deviceId?: string (可選，優先使用；若未提供則從 app_users.boundDeviceId 查找)
  * 
  * Headers:
  * - Authorization: Bearer {FIREBASE_ID_TOKEN}
+ * 
+ * 更新策略（統一通知架構）：
+ * 1. 更新 app_users.fcmToken（向後相容）
+ * 2. 若用戶有綁定設備，同時更新 devices.fcmToken
  */
 export const updateMapUserFcmToken = onRequest(async (req, res) => {
   // CORS handling
@@ -133,15 +140,47 @@ export const updateMapUserFcmToken = onRequest(async (req, res) => {
       return;
     }
 
-    // Update FCM token
+    // Update FCM token in app_users (向後相容)
     await userRef.update({
       fcmToken: body.fcmToken,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // 統一通知架構：同時更新設備的 FCM token
+    let deviceId = body.deviceId;
+    
+    // 如果沒有提供 deviceId，從 app_users.boundDeviceId 查找
+    if (!deviceId && userData?.boundDeviceId) {
+      deviceId = userData.boundDeviceId;
+    }
+
+    if (deviceId) {
+      const deviceRef = db.collection('devices').doc(deviceId);
+      const deviceDoc = await deviceRef.get();
+
+      if (deviceDoc.exists) {
+        const deviceData = deviceDoc.data();
+        
+        // 驗證設備綁定到此用戶
+        if (deviceData?.bindingType === 'MAP_USER' && deviceData?.boundTo === body.userId) {
+          await deviceRef.update({
+            fcmToken: body.fcmToken,
+            notificationEnabled: true,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`Updated FCM token for device ${deviceId}`);
+        } else {
+          console.warn(`Device ${deviceId} is not bound to user ${body.userId}, skipping device token update`);
+        }
+      } else {
+        console.warn(`Device ${deviceId} not found, skipping device token update`);
+      }
+    }
+
     res.json({
       success: true,
       message: 'FCM token 更新成功',
+      deviceUpdated: !!deviceId,
     });
 
   } catch (error: any) {
