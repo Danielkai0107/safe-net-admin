@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, User, Phone, Edit, Trash2, Clock, Search } from 'lucide-react';
+import { Plus, User, Phone, Edit, Trash2, Clock, Search, Download, Upload } from 'lucide-react';
 import { elderService } from '../../services/elderService';
 import { deviceService } from '../../services/deviceService';
 import { useAuth } from '../../hooks/useAuth';
@@ -8,6 +8,7 @@ import { ElderFormModal } from '../../components/ElderFormModal';
 import { formatDistanceToNow } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 import type { Elder, Device } from '../../types';
+import * as XLSX from 'xlsx';
 
 export const ElderListScreen = () => {
   const navigate = useNavigate();
@@ -19,6 +20,17 @@ export const ElderListScreen = () => {
   const [editingElder, setEditingElder] = useState<Elder | null>(null);
   const [deletingElder, setDeletingElder] = useState<Elder | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // 批次匯入相關
+  const [showBatchImportModal, setShowBatchImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    success: number;
+    failed: number;
+    errors: string[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 合併長者和設備資料
   const enrichedElders = useMemo(() => {
@@ -82,6 +94,128 @@ export const ElderListScreen = () => {
     // Modal 會自動重新載入資料（因為使用 subscribe）
   };
 
+  // 匯出 Excel 模板
+  const handleExportTemplate = () => {
+    const template = [
+      {
+        "姓名": "",
+        "性別": "MALE",
+        "年齡": "",
+        "電話": "",
+        "地址": "",
+        "緊急聯絡人": "",
+        "緊急聯絡電話": "",
+        "備註": "性別可選：MALE(男), FEMALE(女), OTHER(其他)；先不分配裝置"
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "長輩模板");
+    
+    // 設置列寬
+    ws['!cols'] = [
+      { wch: 15 }, // 姓名
+      { wch: 10 }, // 性別
+      { wch: 10 }, // 年齡
+      { wch: 15 }, // 電話
+      { wch: 30 }, // 地址
+      { wch: 15 }, // 緊急聯絡人
+      { wch: 15 }, // 緊急聯絡電話
+      { wch: 50 }  // 備註
+    ];
+
+    XLSX.writeFile(wb, `長輩批次新增模板_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // 批次匯入長輩
+  const handleBatchImport = async () => {
+    if (!importFile) {
+      alert("請選擇要匯入的檔案");
+      return;
+    }
+
+    if (!tenantId) {
+      alert("無法取得社區資訊");
+      return;
+    }
+
+    setImporting(true);
+    setImportResults(null);
+
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      let success = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < jsonData.length; i++) {
+        const row: any = jsonData[i];
+        const rowNum = i + 2; // Excel 行號（從第2行開始，第1行是標題）
+
+        try {
+          // 驗證必填欄位
+          if (!row["姓名"]) {
+            errors.push(`第 ${rowNum} 行：缺少必填欄位（姓名）`);
+            failed++;
+            continue;
+          }
+
+          // 驗證性別格式
+          const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+          if (row["性別"] && !validGenders.includes(row["性別"])) {
+            errors.push(`第 ${rowNum} 行：性別格式錯誤，應為 MALE、FEMALE 或 OTHER`);
+            failed++;
+            continue;
+          }
+
+          // 準備長輩資料
+          const elderData: Partial<Elder> = {
+            tenantId: tenantId,
+            name: row["姓名"],
+            gender: row["性別"] || undefined,
+            age: row["年齡"] ? Number(row["年齡"]) : undefined,
+            phone: row["電話"] || undefined,
+            address: row["地址"] || undefined,
+            emergencyContact: row["緊急聯絡人"] || undefined,
+            emergencyPhone: row["緊急聯絡電話"] || undefined,
+            notes: row["備註"] && row["備註"] !== "性別可選：MALE(男), FEMALE(女), OTHER(其他)；先不分配裝置" ? row["備註"] : undefined,
+            status: 'ACTIVE' as const,
+            inactiveThresholdHours: 24,
+            isActive: true,
+          };
+
+          // 創建長輩
+          await elderService.create(elderData);
+          success++;
+        } catch (error: any) {
+          errors.push(`第 ${rowNum} 行：${error.message || "匯入失敗"}`);
+          failed++;
+        }
+      }
+
+      setImportResults({ success, failed, errors });
+    } catch (error: any) {
+      alert(`檔案讀取失敗：${error.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // 重置匯入狀態
+  const handleResetImport = () => {
+    setImportFile(null);
+    setImportResults(null);
+    setShowBatchImportModal(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const styles = {
       ACTIVE: 'bg-green-100 text-green-800',
@@ -135,13 +269,31 @@ export const ElderListScreen = () => {
           <p className="text-sm text-gray-600 mt-1">總共 {enrichedElders.length} 位長者</p>
         </div>
         {isAdmin && (
-          <button
-            onClick={handleAdd}
-            className="flex items-center space-x-2 btn btn-primary"
-          >
-            <Plus className="w-5 h-5" />
-            <span>新增長者</span>
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleExportTemplate}
+              className="flex items-center space-x-2 btn btn-secondary text-green-600 hover:text-green-700 hover:bg-green-50"
+              title="匯出批次新增模板"
+            >
+              <Download className="w-5 h-5" />
+              <span>匯出模板</span>
+            </button>
+            <button
+              onClick={() => setShowBatchImportModal(true)}
+              className="flex items-center space-x-2 btn btn-secondary text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+              title="批次匯入長輩"
+            >
+              <Upload className="w-5 h-5" />
+              <span>批次新增</span>
+            </button>
+            <button
+              onClick={handleAdd}
+              className="flex items-center space-x-2 btn btn-primary"
+            >
+              <Plus className="w-5 h-5" />
+              <span>新增長者</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -352,6 +504,112 @@ export const ElderListScreen = () => {
                 確認刪除
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Import Modal */}
+      {showBatchImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">批次新增長輩</h3>
+            
+            {!importResults ? (
+              <div className="space-y-4">
+                {/* 說明 */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-blue-900 mb-2">使用說明：</h4>
+                  <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                    <li>點擊「匯出模板」按鈕下載 Excel 模板</li>
+                    <li>在模板中填寫長輩基本資料（姓名為必填）</li>
+                    <li>暫不分配裝置，可稍後在長輩詳情頁面綁定</li>
+                    <li>上傳填寫完成的檔案進行批次新增</li>
+                  </ol>
+                </div>
+
+                {/* 檔案上傳 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    選擇 Excel 檔案
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    className="input"
+                  />
+                  {importFile && (
+                    <p className="text-sm text-gray-600 mt-2">
+                      已選擇：{importFile.name}
+                    </p>
+                  )}
+                </div>
+
+                {/* 按鈕 */}
+                <div className="flex justify-end space-x-3 pt-4 border-t">
+                  <button
+                    onClick={handleResetImport}
+                    className="btn btn-secondary"
+                    disabled={importing}
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleBatchImport}
+                    className="btn btn-primary"
+                    disabled={!importFile || importing}
+                  >
+                    {importing ? "匯入中..." : "開始匯入"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* 匯入結果 */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">匯入結果</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-green-50 border border-green-200 rounded p-3">
+                      <p className="text-sm text-green-600">成功</p>
+                      <p className="text-2xl font-bold text-green-700">
+                        {importResults.success}
+                      </p>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                      <p className="text-sm text-red-600">失敗</p>
+                      <p className="text-2xl font-bold text-red-700">
+                        {importResults.failed}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 錯誤訊息 */}
+                {importResults.errors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 max-h-64 overflow-y-auto">
+                    <h5 className="font-semibold text-red-900 mb-2">錯誤詳情：</h5>
+                    <ul className="text-sm text-red-800 space-y-1">
+                      {importResults.errors.map((error, index) => (
+                        <li key={index} className="border-b border-red-100 pb-1">
+                          {error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* 關閉按鈕 */}
+                <div className="flex justify-end pt-4 border-t">
+                  <button
+                    onClick={handleResetImport}
+                    className="btn btn-primary"
+                  >
+                    完成
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, Battery, Signal, Edit, Trash2 } from "lucide-react";
+import { Plus, Search, Battery, Signal, Edit, Trash2, Download, Upload } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { deviceService } from "../services/deviceService";
 import { elderService } from "../services/elderService";
@@ -11,6 +11,7 @@ import { formatDistanceToNow } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { Modal } from "../components/Modal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import * as XLSX from 'xlsx';
 
 export const DevicesPage = () => {
   const navigate = useNavigate();
@@ -28,6 +29,17 @@ export const DevicesPage = () => {
 
   // 批次選擇相關
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
+
+  // 批次匯入相關
+  const [showBatchImportModal, setShowBatchImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    success: number;
+    failed: number;
+    errors: string[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
@@ -244,6 +256,128 @@ export const DevicesPage = () => {
     }
   };
 
+  // 匯出 Excel 模板
+  const handleExportTemplate = () => {
+    const template = [
+      {
+        UUID: "",
+        Major: "",
+        Minor: "",
+        "設備類型": "IBEACON",
+        "所屬社區ID": "",
+        "電量": 100,
+        "備註": "UUID請從UUID管理中複製；設備類型可選：IBEACON, EDDYSTONE, GENERIC_BLE；所屬社區ID請從社區管理中複製"
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Beacon模板");
+    
+    // 設置列寬
+    ws['!cols'] = [
+      { wch: 40 }, // UUID
+      { wch: 10 }, // Major
+      { wch: 10 }, // Minor
+      { wch: 15 }, // 設備類型
+      { wch: 20 }, // 所屬社區ID
+      { wch: 10 }, // 電量
+      { wch: 60 }  // 備註
+    ];
+
+    XLSX.writeFile(wb, `Beacon批次新增模板_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // 批次匯入 Beacon
+  const handleBatchImport = async () => {
+    if (!importFile) {
+      alert("請選擇要匯入的檔案");
+      return;
+    }
+
+    setImporting(true);
+    setImportResults(null);
+
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      let success = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < jsonData.length; i++) {
+        const row: any = jsonData[i];
+        const rowNum = i + 2; // Excel 行號（從第2行開始，第1行是標題）
+
+        try {
+          // 驗證必填欄位
+          if (!row.UUID || !row.Major || !row.Minor) {
+            errors.push(`第 ${rowNum} 行：缺少必填欄位（UUID、Major、Minor）`);
+            failed++;
+            continue;
+          }
+
+          // 生成唯一序號
+          const deviceName = await deviceService.generateUniqueSerial();
+
+          // 檢查 UUID + Major + Minor 組合是否已存在
+          const existingDevice = await deviceService.getByMajorMinor(
+            row.UUID.toLowerCase(),
+            Number(row.Major),
+            Number(row.Minor)
+          );
+
+          if (existingDevice.data) {
+            errors.push(`第 ${rowNum} 行：UUID + Major(${row.Major}) + Minor(${row.Minor}) 組合已存在`);
+            failed++;
+            continue;
+          }
+
+          // 準備設備資料
+          const deviceData = {
+            deviceName: deviceName,
+            uuid: row.UUID.toLowerCase(),
+            major: Number(row.Major),
+            minor: Number(row.Minor),
+            type: row["設備類型"] || "IBEACON",
+            batteryLevel: row["電量"] ? Number(row["電量"]) : 100,
+            tags: row["所屬社區ID"] ? [row["所屬社區ID"]] : [],
+          };
+
+          // 創建設備
+          await deviceService.create(deviceData);
+          success++;
+        } catch (error: any) {
+          errors.push(`第 ${rowNum} 行：${error.message || "匯入失敗"}`);
+          failed++;
+        }
+      }
+
+      setImportResults({ success, failed, errors });
+      
+      if (success > 0) {
+        loadDevices();
+      }
+    } catch (error: any) {
+      alert(`檔案讀取失敗：${error.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // 重置匯入狀態
+  const handleResetImport = () => {
+    setImportFile(null);
+    setImportResults(null);
+    setShowBatchImportModal(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   // 清理孤兒設備（bindingType='ELDER' 但 boundTo 指向不存在的長者）
   const handleCleanOrphanDevices = async () => {
     if (
@@ -432,6 +566,22 @@ export const DevicesPage = () => {
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          <button
+            onClick={handleExportTemplate}
+            className="btn-secondary flex items-center space-x-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+            title="匯出批次新增模板"
+          >
+            <Download className="w-5 h-5" />
+            <span>匯出模板</span>
+          </button>
+          <button
+            onClick={() => setShowBatchImportModal(true)}
+            className="btn-secondary flex items-center space-x-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            title="批次匯入 Beacon"
+          >
+            <Upload className="w-5 h-5" />
+            <span>批次新增</span>
+          </button>
           <button
             onClick={handleCleanOrphanDevices}
             className="btn-secondary flex items-center space-x-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
@@ -839,6 +989,116 @@ export const DevicesPage = () => {
         confirmText="刪除"
         type="danger"
       />
+
+      {/* Batch Import Modal */}
+      <Modal
+        isOpen={showBatchImportModal}
+        onClose={handleResetImport}
+        title="批次新增 Beacon"
+        size="lg"
+      >
+        <div className="space-y-4">
+          {!importResults ? (
+            <>
+              {/* 說明 */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-semibold text-blue-900 mb-2">使用說明：</h3>
+                <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                  <li>點擊「匯出模板」按鈕下載 Excel 模板</li>
+                  <li>在模板中填寫 Beacon 資料（UUID、Major、Minor 為必填）</li>
+                  <li>序號會自動生成，無需填寫</li>
+                  <li>上傳填寫完成的檔案進行批次新增</li>
+                </ol>
+              </div>
+
+              {/* 檔案上傳 */}
+              <div>
+                <label className="label">選擇 Excel 檔案</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="input"
+                />
+                {importFile && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    已選擇：{importFile.name}
+                  </p>
+                )}
+              </div>
+
+              {/* 按鈕 */}
+              <div className="flex items-center justify-end space-x-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={handleResetImport}
+                  className="btn-secondary"
+                  disabled={importing}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchImport}
+                  className="btn-primary"
+                  disabled={!importFile || importing}
+                >
+                  {importing ? "匯入中..." : "開始匯入"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* 匯入結果 */}
+              <div className="space-y-4">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-900 mb-3">匯入結果</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-green-50 border border-green-200 rounded p-3">
+                      <p className="text-sm text-green-600">成功</p>
+                      <p className="text-2xl font-bold text-green-700">
+                        {importResults.success}
+                      </p>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                      <p className="text-sm text-red-600">失敗</p>
+                      <p className="text-2xl font-bold text-red-700">
+                        {importResults.failed}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 錯誤訊息 */}
+                {importResults.errors.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 max-h-64 overflow-y-auto">
+                    <h4 className="font-semibold text-red-900 mb-2">錯誤詳情：</h4>
+                    <ul className="text-sm text-red-800 space-y-1">
+                      {importResults.errors.map((error, index) => (
+                        <li key={index} className="border-b border-red-100 pb-1">
+                          {error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* 關閉按鈕 */}
+                <div className="flex items-center justify-end pt-4 border-t">
+                  <button
+                    type="button"
+                    onClick={handleResetImport}
+                    className="btn-primary"
+                  >
+                    完成
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };
