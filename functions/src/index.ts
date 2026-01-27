@@ -33,6 +33,7 @@ import { getMapUserProfile } from "./mapApp/userProfile";
 import {
   bindDeviceToLineUser,
   unbindDeviceFromLineUser,
+  updateLineUserDeviceProfile,
 } from "./mapApp/lineUserDeviceBinding";
 import {
   addLineUserNotificationPoint,
@@ -76,6 +77,7 @@ export {
   // LINE User APIs (for LIFF Map)
   bindDeviceToLineUser,
   unbindDeviceFromLineUser,
+  updateLineUserDeviceProfile,
   addLineUserNotificationPoint,
   removeLineUserNotificationPoint,
   getLineUserNotificationPoints,

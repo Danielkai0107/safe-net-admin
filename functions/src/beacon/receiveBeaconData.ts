@@ -38,6 +38,7 @@ interface GatewayInfo {
   latitude?: number;
   longitude?: number;
   isActive: boolean;
+  isAD?: boolean; // 行銷點標記
 }
 
 interface ProcessingResult {
@@ -210,9 +211,11 @@ async function getGatewayInfo(
     }
 
     const gatewayDoc = gatewayQuery.docs[0];
+    const gatewayData = gatewayDoc.data();
     return {
       id: gatewayDoc.id,
-      ...gatewayDoc.data(),
+      ...gatewayData,
+      isAD: gatewayData?.isAD || false, // 預設為 false
     } as GatewayInfo;
   } catch (error) {
     console.error("Error querying gateway:", error);
@@ -249,6 +252,7 @@ async function getOrCreateGateway(
     type: "SAFE_ZONE" as const,
     tenantId: null,
     isActive: true,
+    isAD: false, // 預設為 false
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
@@ -288,6 +292,7 @@ async function getOrCreateGateway(
     longitude: newGateway.longitude,
     tenantId: newGateway.tenantId,
     isActive: newGateway.isActive,
+    isAD: newGateway.isAD,
   } as GatewayInfo;
 }
 
@@ -863,6 +868,7 @@ async function handleNotification(
 
 /**
  * Handle Elder notification (LINE)
+ * ELDER 設備觸發的通知是群發給該 elder 所屬社區的所有成員
  */
 async function handleElderNotification(
   deviceId: string,
@@ -876,7 +882,7 @@ async function handleElderNotification(
   isFirstActivityToday: boolean = false,
 ): Promise<NotificationResult> {
   try {
-    // 1. Get elder data
+    // 1. Get elder data and tenant
     const elderDoc = await db.collection("elders").doc(elderId).get();
     if (!elderDoc.exists) {
       console.log(`Elder ${elderId} not found`);
@@ -893,17 +899,7 @@ async function handleElderNotification(
       return { triggered: false, type: null };
     }
 
-    // 2. Check if gateway is a notification point for this tenant
-    const notificationPointsSnapshot = await db
-      .collection("tenantNotificationPoints")
-      .where("tenantId", "==", tenantId)
-      .where("gatewayId", "==", gateway.id)
-      .where("isActive", "==", true)
-      .where("notifyOnElderActivity", "==", true)
-      .limit(1)
-      .get();
-
-    // 3. Get tenant LINE settings
+    // 2. Get tenant LINE settings
     const tenantDoc = await db.collection("tenants").doc(tenantId).get();
     if (!tenantDoc.exists) {
       console.log(`Tenant ${tenantId} not found`);
@@ -911,16 +907,28 @@ async function handleElderNotification(
     }
 
     const tenant = tenantDoc.data();
+    const buType = tenant?.BU_type;
     const channelAccessToken = tenant?.lineChannelAccessToken;
+
+    console.log(`Tenant ${tenantId} BU_type: ${buType}`);
+
+    // 只有 BU_type="group" 才處理 ELDER 群發通知
+    if (buType !== "group") {
+      console.log(
+        `BU_type ${buType} does not support ELDER broadcast notifications, skipping`,
+      );
+      return { triggered: false, type: null };
+    }
 
     if (!channelAccessToken) {
       console.log(`Tenant ${tenantId} has no LINE Channel Access Token`);
       return { triggered: false, type: null };
     }
 
-    // 4. Priority 1: Send first activity notification if this is today's first activity
+    // 3. Priority 1: Send first activity notification if this is today's first activity
+    // 首次活動通知的優先級最高，不需要檢查通知點
     if (isFirstActivityToday) {
-      console.log(`Elder ${elder.name} first activity today`);
+      console.log(`Elder ${elder.name} first activity today (群發通知)`);
 
       await sendFirstActivityNotification(
         elderId,
@@ -945,49 +953,101 @@ async function handleElderNotification(
       };
     }
 
-    // 5. Priority 2: If gateway is a notification point, send notification
-    if (!notificationPointsSnapshot.empty) {
-      const notificationPoint = notificationPointsSnapshot.docs[0];
-      const pointData = notificationPoint.data();
+    // 4. Priority 2: Check if gateway is in device's inheritedNotificationPointIds
+    // 獲取設備資料，檢查通知點
+    const deviceDoc = await db.collection("devices").doc(deviceId).get();
+    const deviceData = deviceDoc.data();
 
-      console.log(
-        `Elder ${elder.name} passed through notification point: ${pointData.name}`,
-      );
-
-      await sendTenantNotificationPointAlert(
-        elderId,
-        elder,
-        pointData,
-        gateway,
-        lat,
-        lng,
-        timestamp,
-        tenantId,
-        channelAccessToken,
-        db,
-      );
-
-      return {
-        triggered: true,
-        type: "LINE",
-        pointId: notificationPoint.id,
-        details: {
-          elderId: elderId,
-          tenantId: tenantId,
-          gatewayType: gateway.type,
-          notificationPointName: pointData.name,
-        },
-      };
+    if (!deviceData) {
+      console.log(`Device ${deviceId} data not found`);
+      return { triggered: false, type: null };
     }
 
-    // 6. No notification sent
+    const notificationPointIds =
+      (deviceData.inheritedNotificationPointIds as string[]) || [];
+
+    if (!notificationPointIds.includes(gateway.id)) {
+      console.log(
+        `Gateway ${gateway.id} is not in elder device's notification points, no notification`,
+      );
+      return { triggered: false, type: null };
+    }
+
+    // 5. 檢查冷卻時間（3 分鐘內不重複發送）
+    const cooldownKey = `elder_${elderId}_gateway_${gateway.id}`;
+    const cooldownDoc = await db
+      .collection("notification_cooldowns")
+      .doc(cooldownKey)
+      .get();
+
+    if (cooldownDoc.exists) {
+      const lastSentAt = cooldownDoc.data()?.lastSentAt;
+      if (lastSentAt) {
+        const timeSinceLastSent = timestamp - lastSentAt.toMillis();
+        const cooldownPeriod = 3 * 60 * 1000; // 3 分鐘
+
+        if (timeSinceLastSent < cooldownPeriod) {
+          console.log(
+            `Skipping notification (cooldown: ${Math.round(timeSinceLastSent / 1000)}s / 180s)`,
+          );
+          return { triggered: false, type: null };
+        }
+      }
+    }
+
     console.log(
-      `No notification sent for elder ${elderId} (not first activity, not notification point)`,
+      `Elder ${elder.name} passed through notification point ${gateway.name} (群發通知)`,
+    );
+
+    // 6. Send notification point alert to all members (群發)
+    // 使用簡化的通知資料（不需要 pointData）
+    const notificationPointData = {
+      name: gateway.name || "通知點",
+      notificationMessage: `${elder.name} 已通過 ${gateway.name || "通知點"}`,
+    };
+
+    await sendTenantNotificationPointAlert(
+      elderId,
+      elder,
+      notificationPointData,
+      gateway,
+      lat,
+      lng,
+      timestamp,
+      tenantId,
+      channelAccessToken,
+      db,
+    );
+
+    // 7. 記錄冷卻時間
+    await db
+      .collection("notification_cooldowns")
+      .doc(cooldownKey)
+      .set({
+        elderId: elderId,
+        gatewayId: gateway.id,
+        tenantId: tenantId,
+        buType: "group",
+        lastSentAt: admin.firestore.Timestamp.fromMillis(timestamp),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    console.log(
+      `Updated cooldown for elder ${elderId} at gateway ${gateway.id}`,
     );
 
     return {
-      triggered: false,
-      type: null,
+      triggered: true,
+      type: "LINE",
+      pointId: gateway.id,
+      details: {
+        elderId: elderId,
+        tenantId: tenantId,
+        buType: "group",
+        gatewayType: gateway.type,
+        notificationPointName: gateway.name || "通知點",
+        notificationType: "NOTIFICATION_POINT_BROADCAST",
+      },
     };
   } catch (error) {
     console.error(
@@ -1204,7 +1264,43 @@ async function handleMapUserNotification(
 }
 
 /**
- * Handle LINE User notification (LINE + Alert)
+ * 獲取綁定用戶的 LINE User ID
+ * @param db Firestore 實例
+ * @param boundTo 綁定對象 ID（LINE_USER doc ID 或 ELDER ID）
+ * @param bindingType 綁定類型
+ * @returns LINE User ID（用於發送 LINE 訊息）
+ */
+async function getLineUserIdFromBinding(
+  db: admin.firestore.Firestore,
+  boundTo: string,
+  bindingType: string,
+): Promise<string | null> {
+  try {
+    if (bindingType === "LINE_USER") {
+      // boundTo 是 line_users document ID
+      const lineUserDoc = await db.collection("line_users").doc(boundTo).get();
+      if (lineUserDoc.exists) {
+        const lineUserId = lineUserDoc.data()?.lineUserId;
+        return lineUserId || null;
+      }
+    } else if (bindingType === "ELDER") {
+      // boundTo 是 elder ID
+      // ELDER 不需要單發，只有群發，所以這裡返回 null
+      return null;
+    }
+    return null;
+  } catch (error) {
+    console.error(
+      `Error getting LINE user ID for ${bindingType} ${boundTo}:`,
+      error,
+    );
+    return null;
+  }
+}
+
+/**
+ * Handle LINE User notification (簡化版本)
+ * 根據 device.tags 和 tenant.BU_type 決定通知方式
  */
 async function handleLineUserNotification(
   deviceId: string,
@@ -1220,7 +1316,7 @@ async function handleLineUserNotification(
     // Skip notifications for OBSERVE_ZONE and INACTIVE gateways
     if (gateway.type === "OBSERVE_ZONE" || gateway.type === "INACTIVE") {
       console.log(
-        `Skipping LINE notification for ${gateway.type} gateway (notification disabled for this type)`,
+        `Skipping LINE notification for ${gateway.type} gateway`,
       );
       return { triggered: false, type: null };
     }
@@ -1229,208 +1325,169 @@ async function handleLineUserNotification(
     const deviceDoc = await db.collection("devices").doc(deviceId).get();
     const deviceData = deviceDoc.data();
 
-    // Check if gateway is in notification points (using inheritedNotificationPointIds)
-    const notificationPointIds =
-      (deviceData?.inheritedNotificationPointIds as string[]) || [];
+    if (!deviceData) {
+      console.log(`Device ${deviceId} data not found`);
+      return { triggered: false, type: null };
+    }
 
-    if (!notificationPointIds.includes(gateway.id)) {
+    // 1. 從 device.tags 取得 tenantId
+    const tags = (deviceData.tags as string[]) || [];
+    if (tags.length === 0) {
+      console.log(`Device ${deviceId} has no tenant tags, skipping notification`);
+      return { triggered: false, type: null };
+    }
+
+    const tenantId = tags[0]; // 一個設備只會有一個社區標籤
+    console.log(`Device ${deviceId} belongs to tenant ${tenantId}`);
+
+    // 2. 查詢 tenant 資料
+    const tenantDoc = await db.collection("tenants").doc(tenantId).get();
+    if (!tenantDoc.exists) {
+      console.log(`Tenant ${tenantId} not found`);
+      return { triggered: false, type: null };
+    }
+
+    const tenantData = tenantDoc.data();
+    const buType = tenantData?.BU_type;
+    const channelAccessToken = tenantData?.lineChannelAccessToken;
+
+    if (!channelAccessToken) {
+      console.log(`Tenant ${tenantId} has no LINE Channel Access Token`);
+      return { triggered: false, type: null };
+    }
+
+    console.log(`Tenant ${tenantId} BU_type: ${buType}`);
+
+    // 3. 根據 BU_type 決定通知邏輯
+    if (buType === "card") {
+      // Card 模式：單發，不檢查通知點，每次都通知
+      console.log(`Card mode: sending notification to bound user`);
+    } else if (buType === "safe") {
+      // Safe 模式：單發，檢查通知點
+      const notificationPointIds =
+        (deviceData.inheritedNotificationPointIds as string[]) || [];
+
       console.log(
-        `Gateway ${gateway.id} is not in LINE user's notification points`,
+        `Safe mode: checking notification points [${notificationPointIds.join(", ")}]`,
+      );
+
+      if (!notificationPointIds.includes(gateway.id)) {
+        console.log(
+          `Gateway ${gateway.id} is not in notification points, no notification`,
+        );
+        return { triggered: false, type: null };
+      }
+
+      console.log(`Gateway ${gateway.id} is in notification points, proceeding`);
+    } else {
+      // 其他 BU_type 或未設定，LINE_USER 設備不處理
+      console.log(
+        `BU_type ${buType} does not support LINE_USER notifications, skipping`,
       );
       return { triggered: false, type: null };
     }
 
-    console.log(
-      `Gateway ${gateway.id} is in LINE user's notification points, triggering notification`,
-    );
-
-    // Get LINE user data
-    const lineUserDoc = await db
-      .collection("line_users")
-      .doc(lineUserDocId)
+    // 4. 檢查 3 分鐘冷卻時間
+    const cooldownKey = `device_${deviceId}_gateway_${gateway.id}`;
+    const cooldownDoc = await db
+      .collection("notification_cooldowns")
+      .doc(cooldownKey)
       .get();
 
-    if (!lineUserDoc.exists) {
-      console.log(`LINE user ${lineUserDocId} not found`);
-      return { triggered: false, type: null };
-    }
+    if (cooldownDoc.exists) {
+      const lastSentAt = cooldownDoc.data()?.lastSentAt;
+      if (lastSentAt) {
+        const timeSinceLastSent = timestamp - lastSentAt.toMillis();
+        const cooldownPeriod = 3 * 60 * 1000; // 3 分鐘
 
-    const lineUserData = lineUserDoc.data();
-    const lineUserId = lineUserData?.lineUserId;
-
-    if (!lineUserId) {
-      console.log(
-        `LINE user ${lineUserDocId} has no lineUserId, cannot send notification`,
-      );
-      return { triggered: false, type: null };
-    }
-
-    // Create alert record (only visible to this user)
-    const alertData = {
-      type: "NOTIFICATION_POINT",
-      deviceId: deviceId,
-      lineUserId: lineUserId,
-      gatewayId: gateway.id,
-      gatewayName: gateway.name || "未知位置",
-      latitude: lat,
-      longitude: lng,
-      title: `已通過：${gateway.name || "通知點"}`,
-      message: `您的設備已通過通知點`,
-      status: "PENDING",
-      triggeredAt: new Date(timestamp).toISOString(),
-      visibleTo: [lineUserId],
-      tenantId: null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    const alertRef = await db.collection("alerts").add(alertData);
-    console.log(`Created alert ${alertRef.id} for LINE user ${lineUserId}`);
-
-    // Send LINE notification using LINE Messaging API
-    try {
-      // Get LINE Channel Access Token from tenant
-      // First, get the LINE user document to find their tenant
-      const lineUserDoc = await db
-        .collection("line_users")
-        .doc(lineUserDocId)
-        .get();
-      const lineUserData = lineUserDoc.data();
-      const joinedFromTenantId = lineUserData?.joinedFromTenantId;
-
-      if (!joinedFromTenantId) {
-        console.warn(
-          `LINE user ${lineUserId} has no joinedFromTenantId, checking memberships...`,
-        );
-        
-        // Try to find tenant from memberships
-        const tenantsSnapshot = await db.collection("tenants").get();
-        let foundTenantId: string | null = null;
-
-        for (const tenantDoc of tenantsSnapshot.docs) {
-          const membersQuery = await db
-            .collection("tenants")
-            .doc(tenantDoc.id)
-            .collection("members")
-            .where("appUserId", "==", lineUserDocId)
-            .where("status", "==", "APPROVED")
-            .limit(1)
-            .get();
-
-          if (!membersQuery.empty) {
-            foundTenantId = tenantDoc.id;
-            break;
-          }
-        }
-
-        if (!foundTenantId) {
-          console.warn(
-            `LINE user ${lineUserId} has no associated tenant, skipping LINE notification`,
-          );
-          return {
-            triggered: true,
-            type: "LINE",
-            pointId: gateway.id,
-            details: {
-              lineUserId: lineUserId,
-              alertId: alertRef.id,
-              gatewayName: gateway.name,
-              message: alertData.message,
-              reason: "No tenant found",
-            },
-          };
-        }
-
-        // Get tenant's LINE Channel Access Token
-        const tenantDoc = await db.collection("tenants").doc(foundTenantId).get();
-        const tenantData = tenantDoc.data();
-        const lineChannelAccessToken = tenantData?.lineChannelAccessToken;
-
-        if (!lineChannelAccessToken) {
-          console.warn(
-            `Tenant ${foundTenantId} has no LINE Channel Access Token`,
-          );
-        } else {
-          // Import sendNotificationPointAlert function
-          const { sendNotificationPointAlert } = await import(
-            "../line/sendMessage"
-          );
-
-          // Send LINE notification
-          await sendNotificationPointAlert(lineUserId, lineChannelAccessToken, {
-            gatewayName: gateway.name || "通知點",
-            deviceNickname: deviceData?.mapUserNickname || undefined,
-            latitude: lat,
-            longitude: lng,
-            timestamp: new Date(timestamp).toISOString(),
-          });
-
+        if (timeSinceLastSent < cooldownPeriod) {
           console.log(
-            `Sent LINE notification to ${lineUserId} for gateway ${gateway.name}`,
+            `Skipping notification (cooldown: ${Math.round(timeSinceLastSent / 1000)}s / 180s)`,
           );
-        }
-      } else {
-        // Get tenant's LINE Channel Access Token
-        const tenantDoc = await db
-          .collection("tenants")
-          .doc(joinedFromTenantId)
-          .get();
-
-        if (!tenantDoc.exists) {
-          console.warn(
-            `Tenant ${joinedFromTenantId} not found, skipping LINE notification`,
-          );
-        } else {
-          const tenantData = tenantDoc.data();
-          const lineChannelAccessToken = tenantData?.lineChannelAccessToken;
-
-          if (!lineChannelAccessToken) {
-            console.warn(
-              `Tenant ${joinedFromTenantId} has no LINE Channel Access Token`,
-            );
-          } else {
-            // Import sendNotificationPointAlert function
-            const { sendNotificationPointAlert } = await import(
-              "../line/sendMessage"
-            );
-
-            // Send LINE notification
-            await sendNotificationPointAlert(
-              lineUserId,
-              lineChannelAccessToken,
-              {
-                gatewayName: gateway.name || "通知點",
-                deviceNickname: deviceData?.mapUserNickname || undefined,
-                latitude: lat,
-                longitude: lng,
-                timestamp: new Date(timestamp).toISOString(),
-              },
-            );
-
-            console.log(
-              `Sent LINE notification to ${lineUserId} for gateway ${gateway.name} using tenant ${joinedFromTenantId}`,
-            );
-          }
+          return { triggered: false, type: null };
         }
       }
-    } catch (lineError) {
-      console.error("Failed to send LINE notification:", lineError);
-      // Don't fail the whole operation if LINE notification fails
     }
 
-    return {
-      triggered: true,
-      type: "LINE",
-      pointId: gateway.id,
-      details: {
+    // 5. 獲取 LINE User ID
+    const lineUserId = await getLineUserIdFromBinding(
+      db,
+      lineUserDocId,
+      "LINE_USER",
+    );
+
+    if (!lineUserId) {
+      console.log(`Cannot get LINE user ID for ${lineUserDocId}`);
+      return { triggered: false, type: null };
+    }
+
+    // 6. 發送單發通知
+    const { sendNotificationPointAlert } = await import("../line/sendMessage");
+
+    try {
+      await sendNotificationPointAlert(lineUserId, channelAccessToken, {
+        gatewayName: gateway.name || "通知點",
+        deviceNickname: deviceData?.mapUserNickname || undefined,
+        latitude: lat,
+        longitude: lng,
+        timestamp: new Date(timestamp).toISOString(),
+      });
+
+      console.log(
+        `✓ Sent LINE notification to ${lineUserId} via tenant ${tenantId} (BU_type=${buType})`,
+      );
+
+      // 7. 記錄冷卻時間
+      await db
+        .collection("notification_cooldowns")
+        .doc(cooldownKey)
+        .set({
+          deviceId: deviceId,
+          gatewayId: gateway.id,
+          tenantId: tenantId,
+          buType: buType,
+          lastSentAt: admin.firestore.Timestamp.fromMillis(timestamp),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      // 8. Create alert record
+      const alertData = {
+        type: "NOTIFICATION_POINT",
+        deviceId: deviceId,
         lineUserId: lineUserId,
-        alertId: alertRef.id,
-        gatewayName: gateway.name,
-        message: alertData.message,
-      },
-    };
+        gatewayId: gateway.id,
+        gatewayName: gateway.name || "未知位置",
+        latitude: lat,
+        longitude: lng,
+        title: `已通過：${gateway.name || "通知點"}`,
+        message: `您的設備已通過通知點`,
+        status: "PENDING",
+        triggeredAt: new Date(timestamp).toISOString(),
+        visibleTo: [lineUserId],
+        tenantId: tenantId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      await db.collection("alerts").add(alertData);
+
+      return {
+        triggered: true,
+        type: "LINE",
+        pointId: gateway.id,
+        details: {
+          lineUserId: lineUserId,
+          tenantId: tenantId,
+          buType: buType,
+          gatewayName: gateway.name,
+        },
+      };
+    } catch (sendError) {
+      console.error(`Failed to send LINE notification:`, sendError);
+      return { triggered: false, type: null };
+    }
   } catch (error) {
     console.error(
-      `Error in handleLineUserNotification for user ${lineUserDocId}:`,
+      `Error in handleLineUserNotification for device ${deviceId}:`,
       error,
     );
     return { triggered: false, type: null };

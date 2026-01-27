@@ -347,3 +347,90 @@ export const unbindDeviceFromLineUser = onRequest(async (req, res) => {
     });
   }
 });
+
+interface UpdateLineUserDeviceProfileRequest {
+  lineUserId: string;
+  nickname?: string | null;
+  age?: number | null;
+  gender?: "MALE" | "FEMALE" | "OTHER" | null;
+}
+
+/**
+ * Update LINE User's bound device profile (nickname, age, gender only).
+ * Product serial (deviceName) cannot be changed.
+ * POST /updateLineUserDeviceProfile
+ */
+export const updateLineUserDeviceProfile = onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ success: false, error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const body: UpdateLineUserDeviceProfileRequest = req.body;
+
+    if (!body.lineUserId) {
+      res.status(400).json({
+        success: false,
+        error: "Missing required field: lineUserId",
+      });
+      return;
+    }
+
+    const db = admin.firestore();
+
+    const lineUsersQuery = await db
+      .collection("line_users")
+      .where("lineUserId", "==", body.lineUserId)
+      .limit(1)
+      .get();
+
+    if (lineUsersQuery.empty) {
+      res.status(404).json({
+        success: false,
+        error: "LINE user not found",
+      });
+      return;
+    }
+
+    const lineUserData = lineUsersQuery.docs[0].data();
+    const boundDeviceId = lineUserData?.boundDeviceId;
+
+    if (!boundDeviceId) {
+      res.status(400).json({
+        success: false,
+        error: "User has no bound device",
+      });
+      return;
+    }
+
+    const updateData: Record<string, unknown> = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (body.nickname !== undefined) updateData.mapUserNickname = body.nickname ?? null;
+    if (body.age !== undefined) updateData.mapUserAge = body.age ?? null;
+    if (body.gender !== undefined) updateData.mapUserGender = body.gender ?? null;
+
+    await db.collection("devices").doc(boundDeviceId).update(updateData);
+
+    res.json({
+      success: true,
+      message: "Device profile updated",
+    });
+  } catch (error: any) {
+    console.error("Error in updateLineUserDeviceProfile:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Internal server error",
+    });
+  }
+});

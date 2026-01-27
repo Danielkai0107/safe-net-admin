@@ -15,6 +15,7 @@ export const GatewaysPage = () => {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [filterType, setFilterType] = useState<GatewayType | "">("");
+  const [filterIsAD, setFilterIsAD] = useState<boolean | "">("");
 
   const [showModal, setShowModal] = useState(false);
   const [editingGateway, setEditingGateway] = useState<Gateway | null>(null);
@@ -45,8 +46,15 @@ export const GatewaysPage = () => {
     const typeParam = filterType !== "" ? filterType : undefined;
     const unsubscribe = gatewayService.subscribe(
       (data) => {
-        setGateways(data);
-        setTotal(data.length);
+        // 前端篩選 isAD
+        let filteredData = data;
+        if (filterIsAD !== "") {
+          filteredData = data.filter(
+            (g) => g.isAD === (filterIsAD === true)
+          );
+        }
+        setGateways(filteredData);
+        setTotal(filteredData.length);
         setLoading(false);
       },
       undefined, // tenantId
@@ -55,7 +63,7 @@ export const GatewaysPage = () => {
 
     // 清理訂閱
     return () => unsubscribe();
-  }, [filterType]);
+  }, [filterType, filterIsAD]);
 
   const loadGateways = () => {
     // 即時監聽會自動更新，此函數保留用於相容性
@@ -99,6 +107,7 @@ export const GatewaysPage = () => {
       serialNumber: gatewaySerial,
       type: "SAFE_ZONE",
       isActive: true,
+      isAD: false,
       name: "",
       latitude: undefined,
       longitude: undefined,
@@ -319,11 +328,28 @@ export const GatewaysPage = () => {
           onChange={(e) => setFilterType(e.target.value as GatewayType | "")}
           className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
-          <option value="">全部</option>
+          <option value="">全部類型</option>
           <option value="SCHOOL_ZONE">學區</option>
           <option value="SAFE_ZONE">安全區</option>
           <option value="OBSERVE_ZONE">觀察區</option>
           <option value="INACTIVE">停用</option>
+        </select>
+        <select
+          value={filterIsAD === "" ? "" : filterIsAD ? "true" : "false"}
+          onChange={(e) =>
+            setFilterIsAD(
+              e.target.value === ""
+                ? ""
+                : e.target.value === "true"
+                ? true
+                : false
+            )
+          }
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">全部（行銷點）</option>
+          <option value="true">是（行銷點）</option>
+          <option value="false">否（非行銷點）</option>
         </select>
       </div>
 
@@ -355,6 +381,9 @@ export const GatewaysPage = () => {
                 </th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
                   類型
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
+                  行銷點
                 </th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
                   位置
@@ -411,6 +440,15 @@ export const GatewaysPage = () => {
                     {gateway.name}
                   </td>
                   <td className="py-3 px-4">{getTypeBadge(gateway.type)}</td>
+                  <td className="py-3 px-4">
+                    {gateway.isAD ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        是
+                      </span>
+                    ) : (
+                      <span className="text-sm text-gray-400">否</span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-sm text-gray-600">
                     {gateway.location || "-"}
                   </td>
@@ -618,6 +656,22 @@ export const GatewaysPage = () => {
                   啟用此接收點
                 </span>
               </label>
+            </div>
+
+            <div className="col-span-2">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  {...register("isAD")}
+                  className="rounded"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  行銷點
+                </span>
+              </label>
+              <p className="text-xs text-gray-500 mt-1">
+                標記此接收點為行銷點
+              </p>
             </div>
           </div>
 

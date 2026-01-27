@@ -1,7 +1,6 @@
 @use "reset" as *;
 @use "variables" as *;
 
-
 /* 地圖容器 */
 
 .map-container {
@@ -199,14 +198,16 @@
   display: flex;
   flex-direction: column;
   overflow: hidden; // 確保圓角可見
-  transition: 
+  transition:
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     border-radius 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   // 收起狀態：有圓角和陰影
   &:not(.expanded) {
-    transform: translateY(calc(100vh - 57px - 120px)); // 露出 120px（包含完整 header）
+    transform: translateY(
+      calc(100vh - 57px - 120px)
+    ); // 露出 120px（包含完整 header）
     border-radius: $border-radius-large $border-radius-large 0 0;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
   }
@@ -318,15 +319,15 @@
 .date-title {
   text-align: center;
   font-size: 16px;
-  font-weight: bold;
-  color: $text-color;
+  font-weight: normal;
+  color: #b0b0b0;
   padding: 0 12px 24px;
-  opacity: 0.7;
 }
 
 /* 活動項目 */
 .activity-item {
   display: flex;
+  align-items: center;
   gap: 16px;
   padding: 0 12px 28px; // 左右 12px，底部 28px (間距加大)
   position: relative;
@@ -334,10 +335,11 @@
   &::after {
     content: "";
     position: absolute;
-    left: 17.5px; // 對齊時間軸點中心 (12px padding + 6px dot 中心 - 0.5px)
-    top: 24px; // 從 dot 下方開始
+    left: 17.5px; // 對齊時間軸點中心 (12px padding + 6px dot 中心)
+    top: 68px; // 從 dot 下方開始
     bottom: 0;
     width: 1px; // 從 2px 改為 1px（更細）
+    height: 60%;
     background-color: #eeeeee; // 更淺的灰色（原本是 $border-color: #e0e0e0）
   }
 
@@ -360,7 +362,8 @@
   &.latest-dot {
     width: 16px;
     height: 16px;
-    margin-top: 10px; // 稍微調整讓大點也能對齊
+    margin-top: 10px; // 調整讓大點的中心和普通點對齊 (12px - 2px = 10px，因為 16px dot 比 12px dot 多 4px，所以往上移 2px)
+    margin-left: -2px; // 向左移 2px，讓 16px dot 的中心對齊 12px dot 的中心 (12px + 6px = 18px, 12px + 8px - 2px = 18px)
     background-color: $secondary-color;
     box-shadow: 0 0 12px rgba(255, 193, 7, 0.6);
     animation: pulse 2s ease-in-out infinite;
@@ -948,7 +951,7 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: $padding-large;
-  
+
   h2 {
     font-size: $font-size-xxlarge;
     font-weight: bold;

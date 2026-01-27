@@ -51,6 +51,7 @@ export interface Tenant {
   address?: string;
   contactPerson?: string;
   contactPhone?: string;
+  BU_type?: "card" | "group" | "safe";
   // LINE 通知設定
   lineLiffId?: string;
   lineLiffEndpointUrl?: string;
@@ -214,6 +215,7 @@ export interface Gateway {
   longitude?: number;
   deviceInfo?: any;
   isActive: boolean;
+  isAD?: boolean; // 行銷點
   tenant?: Tenant;
 }
 

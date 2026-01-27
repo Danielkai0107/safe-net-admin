@@ -43,9 +43,14 @@ export const MapScreen = () => {
   const [age, setAge] = useState<number | undefined>();
   const [isBinding, setIsBinding] = useState(false);
   const [isUnbinding, setIsUnbinding] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [notificationPointIds, setNotificationPointIds] = useState<string[]>(
     [],
   );
+  // 設備資訊編輯欄位（已綁定時可編輯，產品序號不可改）
+  const [deviceEditNickname, setDeviceEditNickname] = useState("");
+  const [deviceEditAge, setDeviceEditAge] = useState<number | "">("");
+  const [deviceEditGender, setDeviceEditGender] = useState<string>("");
 
   // Activity states
   const [activities, setActivities] = useState<
@@ -309,6 +314,43 @@ export const MapScreen = () => {
     };
   }, [boundDevice?.id]);
 
+  // 打開設備資訊時，把編輯欄位同步成目前設備資料
+  useEffect(() => {
+    if (isBindModalOpen && boundDevice) {
+      setDeviceEditNickname(boundDevice.mapUserNickname ?? "");
+      setDeviceEditAge(boundDevice.mapUserAge ?? "");
+      setDeviceEditGender(boundDevice.mapUserGender ?? "");
+    }
+  }, [isBindModalOpen, boundDevice]);
+
+  const handleSaveDeviceProfile = async () => {
+    if (!profile) return;
+    setIsSavingProfile(true);
+    setIsFullScreenLoading(true);
+    setLoadingMessage("儲存中...");
+    try {
+      const result = await deviceService.updateDeviceProfile(profile.userId, {
+        nickname: deviceEditNickname.trim() || null,
+        age: deviceEditAge === "" ? null : Number(deviceEditAge),
+        gender: deviceEditGender ? (deviceEditGender as "MALE" | "FEMALE" | "OTHER") : null,
+      });
+      if (result.success) {
+        const status = await deviceService.getBindingStatus(profile.userId);
+        setBoundDevice(status.device || null);
+        setLoadingMessage("已儲存");
+        setTimeout(() => setIsFullScreenLoading(false), 400);
+      } else {
+        setIsFullScreenLoading(false);
+        alert(result.error || "儲存失敗");
+      }
+    } catch (e: any) {
+      setIsFullScreenLoading(false);
+      alert(e?.message || "儲存失敗");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   const handleConfirmBind = async () => {
     if (!profile) {
       alert("請先登入");
@@ -505,10 +547,7 @@ export const MapScreen = () => {
     }),
   );
 
-  // Calculate stats
-  const todayActivities = activities.filter((act) =>
-    activityService.isToday(act.timestamp),
-  );
+
   const lastActivity = activities.length > 0 ? activities[0] : null;
 
   // Swipe handling
@@ -818,58 +857,7 @@ export const MapScreen = () => {
                   pointerEvents: activePanel === "timeline" ? "auto" : "none",
                 }}
               >
-                {/* Quick Stats */}
-                <div
-                  style={{
-                    padding: "12px 16px",
-                    background: "#f8f9fa",
-                    borderRadius: "8px",
-                    marginBottom: "32px",
-                    display: "flex",
-                    gap: "16px",
-                  }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginBottom: "12px",
-                      }}
-                    >
-                      今日活動
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "20px",
-                        fontWeight: "bold",
-                        color: "#4ECDC4",
-                      }}
-                    >
-                      {todayActivities.length}
-                    </div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        marginBottom: "12px",
-                      }}
-                    >
-                      總活動數
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "20px",
-                        fontWeight: "bold",
-                        color: "#4ECDC4",
-                      }}
-                    >
-                      {activities.length}
-                    </div>
-                  </div>
-                </div>
+          
 
                 {/* Activity timeline */}
                 {dateGroups.map((group, index) => (
@@ -928,54 +916,65 @@ export const MapScreen = () => {
             <div style={{ marginTop: "12px", color: "#999", textAlign: "center" }}>載入中...</div>
           </div>
         ) : isBound && boundDevice ? (
-          // 已綁定：顯示設備資訊
+          // 已綁定：產品序號唯讀，暱稱／年齡／性別可編輯
           <>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-500 mb-1">
                   產品序號
                 </label>
-                <div className="text-base font-medium text-gray-900">
+                <div className="text-base font-medium text-gray-900 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
                   {boundDevice.deviceName || "未設定"}
                 </div>
               </div>
 
-              {boundDevice.mapUserNickname && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    暱稱
-                  </label>
-                  <div className="text-base text-gray-900">
-                    {boundDevice.mapUserNickname}
-                  </div>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">
+                  暱稱（選填）
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+                  placeholder="例如：我的設備"
+                  value={deviceEditNickname}
+                  onChange={(e) => setDeviceEditNickname(e.target.value)}
+                />
+              </div>
 
-              {boundDevice.mapUserAge && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    年齡
-                  </label>
-                  <div className="text-base text-gray-900">
-                    {boundDevice.mapUserAge} 歲
-                  </div>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">
+                  性別（選填）
+                </label>
+                <select
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition bg-white"
+                  value={deviceEditGender}
+                  onChange={(e) => setDeviceEditGender(e.target.value)}
+                >
+                  <option value="">請選擇</option>
+                  <option value="MALE">男性</option>
+                  <option value="FEMALE">女性</option>
+                  <option value="OTHER">其他</option>
+                </select>
+              </div>
 
-              {boundDevice.mapUserGender && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    性別
-                  </label>
-                  <div className="text-base text-gray-900">
-                    {boundDevice.mapUserGender === "MALE"
-                      ? "男性"
-                      : boundDevice.mapUserGender === "FEMALE"
-                        ? "女性"
-                        : "其他"}
-                  </div>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">
+                  年齡（選填）
+                </label>
+                <input
+                  type="number"
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition"
+                  placeholder="例如：75"
+                  min={0}
+                  max={150}
+                  value={deviceEditAge === "" ? "" : deviceEditAge}
+                  onChange={(e) =>
+                    setDeviceEditAge(
+                      e.target.value === "" ? "" : parseInt(e.target.value, 10)
+                    )
+                  }
+                />
+              </div>
 
               {boundDevice.boundAt && (
                 <div>
@@ -985,11 +984,9 @@ export const MapScreen = () => {
                   <div className="text-base text-gray-900">
                     {(() => {
                       const boundAt = boundDevice.boundAt as any;
-                      // 處理 Firestore Timestamp 對象
-                      if (boundAt && typeof boundAt === 'object' && boundAt.seconds) {
+                      if (boundAt && typeof boundAt === "object" && boundAt.seconds) {
                         return new Date(boundAt.seconds * 1000).toLocaleString("zh-TW");
                       }
-                      // 處理字串或數字
                       const date = new Date(boundAt);
                       return isNaN(date.getTime()) ? "未知" : date.toLocaleString("zh-TW");
                     })()}
@@ -999,6 +996,13 @@ export const MapScreen = () => {
             </div>
 
             <div className="modal-actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleSaveDeviceProfile}
+                disabled={isSavingProfile}
+              >
+                {isSavingProfile ? "儲存中..." : "儲存"}
+              </button>
               <button
                 className="btn btn-danger"
                 onClick={handleUnbind}

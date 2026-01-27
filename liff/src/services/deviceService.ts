@@ -25,6 +25,44 @@ interface UnbindDeviceResponse {
   error?: string;
 }
 
+interface UpdateDeviceProfileResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Update bound device profile (nickname, age, gender only). Product serial cannot be changed.
+ */
+export const updateDeviceProfile = async (
+  lineUserId: string,
+  data: { nickname?: string | null; age?: number | null; gender?: "MALE" | "FEMALE" | "OTHER" | null },
+): Promise<UpdateDeviceProfileResponse> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/updateLineUserDeviceProfile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lineUserId,
+        nickname: data.nickname,
+        age: data.age,
+        gender: data.gender,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to update device profile");
+    }
+    return result;
+  } catch (error: any) {
+    console.error("Error updating device profile:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to update device profile",
+    };
+  }
+};
+
 /**
  * Bind device to LINE user
  */

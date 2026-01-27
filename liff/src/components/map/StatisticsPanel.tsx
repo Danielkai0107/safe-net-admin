@@ -1,11 +1,10 @@
 import { DeviceActivity } from "../../services/activityService";
+import * as activityService from "../../services/activityService";
 import {
   calculateHourlyActivity,
   calculateDailyActivity,
   calculateHotspots,
   getPeakActivityTime,
-  getMostVisitedGateway,
-  getAverageActivitiesPerDay,
 } from "../../utils/statisticsHelper";
 
 interface StatisticsPanelProps {
@@ -21,95 +20,205 @@ export const StatisticsPanel = ({ activities }: StatisticsPanelProps) => {
   const maxDailyCount = Math.max(...dailyData.map((d) => d.count), 1);
 
   const peakTime = getPeakActivityTime(activities);
-  const mostVisited = getMostVisitedGateway(activities);
-  const avgPerDay = getAverageActivitiesPerDay(activities);
+
+  // Calculate stats
+  const todayActivities = activities.filter((act) =>
+    activityService.isToday(act.timestamp),
+  );
 
   return (
-    <div style={{ padding: "0 0 40px 0" }}>
+    <div style={{ padding: "0 16px 40px 16px" }}>
       {/* Summary Cards */}
+      {/* Quick Stats */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "12px",
-          padding: "0 16px",
+          padding: "12px 16px",
+          background: "#f8f9fa",
+          borderRadius: "8px",
           marginBottom: "32px",
+          display: "flex",
+          gap: "16px",
         }}
       >
-        <div
-          style={{
-            background: "#f8f9fa",
-            borderRadius: "12px",
-            padding: "12px",
-            textAlign: "center",
-          }}
-        >
+        <div style={{ flex: 1 }}>
           <div
-            style={{ fontSize: "12px", color: "#666", marginBottom: "12px" }}
+            style={{
+              fontSize: "12px",
+              color: "#666",
+              marginBottom: "12px",
+            }}
+          >
+            今日活動
+          </div>
+          <div
+            style={{
+              fontSize: "20px",
+              fontWeight: "bold",
+              color: "#4ECDC4",
+            }}
+          >
+            {todayActivities.length}
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              color: "#666",
+              marginBottom: "12px",
+            }}
+          >
+            總活動數
+          </div>
+          <div
+            style={{
+              fontSize: "20px",
+              fontWeight: "bold",
+              color: "#4ECDC4",
+            }}
+          >
+            {activities.length}
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              color: "#666",
+              marginBottom: "12px",
+            }}
           >
             高峰時段
           </div>
           <div
-            style={{ fontSize: "18px", fontWeight: "bold", color: "#4ECDC4" }}
+            style={{
+              fontSize: "20px",
+              fontWeight: "bold",
+              color: "#4ECDC4",
+            }}
           >
             {peakTime}
           </div>
         </div>
+      </div>
+
+      {/* Hotspots */}
+      <div
+        style={{
+          padding: "20px 16px",
+          marginBottom: "32px",
+          backgroundColor: "#ffffff",
+          borderRadius: "16px",
+          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+        }}
+      >
         <div
           style={{
-            background: "#f8f9fa",
-            borderRadius: "12px",
-            padding: "12px",
-            textAlign: "center",
+            fontSize: "16px",
+            fontWeight: "bold",
+            color: "#2c3e50",
+            marginBottom: "24px",
           }}
         >
-          <div
-            style={{ fontSize: "12px", color: "#666", marginBottom: "12px" }}
-          >
-            日均活動
-          </div>
-          <div
-            style={{ fontSize: "18px", fontWeight: "bold", color: "#4ECDC4" }}
-          >
-            {avgPerDay}
-          </div>
+          熱門地點 TOP 5
         </div>
-        <div
-          style={{
-            background: "#f8f9fa",
-            borderRadius: "12px",
-            padding: "12px",
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{ fontSize: "12px", color: "#666", marginBottom: "12px" }}
-          >
-            最常去
-          </div>
+        {hotspots.length === 0 ? (
           <div
             style={{
+              textAlign: "center",
+              padding: "20px",
+              color: "#999",
               fontSize: "14px",
-              fontWeight: "bold",
-              color: "#4ECDC4",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
             }}
           >
-            {mostVisited}
+            暫無數據
           </div>
-        </div>
+        ) : (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
+            {hotspots.map((hotspot) => (
+              <div
+                key={hotspot.gatewayId}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      color: "#666",
+                      fontWeight: "400",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {hotspot.gatewayName}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        flex: 1,
+                        height: "6px",
+                        background: "#e0e0e0",
+                        borderRadius: "3px",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${hotspot.percentage}%`,
+                          height: "100%",
+                          background: "#4ECDC4",
+                          borderRadius: "3px",
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "#666",
+                        minWidth: "50px",
+                        textAlign: "right",
+                      }}
+                    >
+                      {hotspot.count} 次
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Hourly Activity Chart */}
-      <div style={{ padding: "0 16px", marginBottom: "32px" }}>
+      <div
+        style={{
+          padding: "20px 16px",
+          marginBottom: "32px",
+          backgroundColor: "#ffffff",
+          borderRadius: "16px",
+          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+        }}
+      >
         <div
           style={{
-            fontSize: "14px",
+            fontSize: "16px",
             fontWeight: "bold",
             color: "#2c3e50",
-            marginBottom: "12px",
+            marginBottom: "24px",
           }}
         >
           24小時活動分布
@@ -165,13 +274,21 @@ export const StatisticsPanel = ({ activities }: StatisticsPanelProps) => {
       </div>
 
       {/* Daily Activity Chart */}
-      <div style={{ padding: "0 16px", marginBottom: "32px" }}>
+      <div
+        style={{
+          padding: "20px 16px",
+          marginBottom: "32px",
+          backgroundColor: "#ffffff",
+          borderRadius: "16px",
+          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+        }}
+      >
         <div
           style={{
-            fontSize: "14px",
+            fontSize: "16px",
             fontWeight: "bold",
             color: "#2c3e50",
-            marginBottom: "12px",
+            marginBottom: "24px",
           }}
         >
           近7天活動趨勢
@@ -232,122 +349,6 @@ export const StatisticsPanel = ({ activities }: StatisticsPanelProps) => {
             );
           })}
         </div>
-      </div>
-
-      {/* Hotspots */}
-      <div style={{ padding: "0 16px" }}>
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: "bold",
-            color: "#2c3e50",
-            marginBottom: "24px",
-          }}
-        >
-          熱門地點 TOP 5
-        </div>
-        {hotspots.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "20px",
-              color: "#999",
-              fontSize: "14px",
-            }}
-          >
-            暫無數據
-          </div>
-        ) : (
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
-          >
-            {hotspots.map((hotspot, index) => (
-              <div
-                key={hotspot.gatewayId}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                }}
-              >
-                <div
-                  style={{
-                    width: "24px",
-                    height: "24px",
-                    borderRadius: "50%",
-                    background:
-                      index === 0
-                        ? "#FFD700"
-                        : index === 1
-                          ? "#C0C0C0"
-                          : index === 2
-                            ? "#CD7F32"
-                            : "#4ECDC4",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "12px",
-                    fontWeight: "bold",
-                    color: "#fff",
-                  }}
-                >
-                  {index + 1}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: "#2c3e50",
-                      fontWeight: "500",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {hotspot.gatewayName}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      marginTop: "4px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        flex: 1,
-                        height: "6px",
-                        background: "#e0e0e0",
-                        borderRadius: "3px",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${hotspot.percentage}%`,
-                          height: "100%",
-                          background: "#4ECDC4",
-                          borderRadius: "3px",
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#666",
-                        minWidth: "50px",
-                        textAlign: "right",
-                      }}
-                    >
-                      {hotspot.count} 次
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

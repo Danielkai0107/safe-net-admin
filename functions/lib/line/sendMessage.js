@@ -220,27 +220,13 @@ const sendNotificationPointAlert = async (lineUserId, channelAccessToken, data) 
         altText: `通知點警報：${data.gatewayName}`,
         contents: {
             type: "bubble",
-            header: {
-                type: "box",
-                layout: "vertical",
-                contents: [
-                    {
-                        type: "text",
-                        text: "通知點警報",
-                        weight: "bold",
-                        size: "lg",
-                        color: "#FFFFFF",
-                    },
-                ],
-                backgroundColor: "#4ECDC4",
-            },
             body: {
                 type: "box",
                 layout: "vertical",
                 contents: [
                     {
                         type: "text",
-                        text: `${deviceName} 已通過`,
+                        text: `${deviceName} 已經過`,
                         weight: "bold",
                         size: "md",
                         wrap: true,

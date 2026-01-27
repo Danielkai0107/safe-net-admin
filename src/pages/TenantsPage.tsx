@@ -227,6 +227,9 @@ export const TenantsPage = () => {
                   電話
                 </th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
+                  BU 類型
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
                   狀態
                 </th>
                 <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
@@ -262,6 +265,15 @@ export const TenantsPage = () => {
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-600">
                     {tenant.contactPhone || "-"}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-600">
+                    {tenant.BU_type === "card"
+                      ? "數位卡"
+                      : tenant.BU_type === "group"
+                      ? "組織"
+                      : tenant.BU_type === "safe"
+                      ? "安全"
+                      : "-"}
                   </td>
                   <td className="py-3 px-4">
                     <span
@@ -405,6 +417,19 @@ export const TenantsPage = () => {
                 className="input"
                 placeholder="02-1234-5678"
               />
+            </div>
+
+            <div>
+              <label className="label">BU 類型</label>
+              <select
+                {...register("BU_type")}
+                className="input"
+              >
+                <option value="">請選擇</option>
+                <option value="card">數位卡</option>
+                <option value="group">組織</option>
+                <option value="safe">安全</option>
+              </select>
             </div>
 
             {/* LINE 通知設定 */}
