@@ -1,4 +1,7 @@
-import { DeviceActivity } from "../../services/activityService";
+import {
+  DeviceActivity,
+  mergeConsecutiveActivities,
+} from "../../services/activityService";
 import * as activityService from "../../services/activityService";
 import {
   calculateHourlyActivity,
@@ -12,17 +15,21 @@ interface StatisticsPanelProps {
 }
 
 export const StatisticsPanel = ({ activities }: StatisticsPanelProps) => {
-  const hourlyData = calculateHourlyActivity(activities);
-  const dailyData = calculateDailyActivity(activities);
-  const hotspots = calculateHotspots(activities, 5);
+  // Merge consecutive same-location activities for statistics
+  // This ensures that continuous detection at the same location counts as one
+  const mergedActivities = mergeConsecutiveActivities(activities);
+
+  const hourlyData = calculateHourlyActivity(mergedActivities);
+  const dailyData = calculateDailyActivity(mergedActivities);
+  const hotspots = calculateHotspots(mergedActivities, 5);
 
   const maxHourlyCount = Math.max(...hourlyData.map((d) => d.count), 1);
   const maxDailyCount = Math.max(...dailyData.map((d) => d.count), 1);
 
-  const peakTime = getPeakActivityTime(activities);
+  const peakTime = getPeakActivityTime(mergedActivities);
 
-  // Calculate stats
-  const todayActivities = activities.filter((act) =>
+  // Calculate stats - also use merged activities
+  const todayActivities = mergedActivities.filter((act) =>
     activityService.isToday(act.timestamp),
   );
 
@@ -77,7 +84,7 @@ export const StatisticsPanel = ({ activities }: StatisticsPanelProps) => {
               color: "#4ECDC4",
             }}
           >
-            {activities.length}
+            {mergedActivities.length}
           </div>
         </div>
         <div style={{ flex: 1 }}>

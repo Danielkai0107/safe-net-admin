@@ -332,7 +332,9 @@ export const MapScreen = () => {
       const result = await deviceService.updateDeviceProfile(profile.userId, {
         nickname: deviceEditNickname.trim() || null,
         age: deviceEditAge === "" ? null : Number(deviceEditAge),
-        gender: deviceEditGender ? (deviceEditGender as "MALE" | "FEMALE" | "OTHER") : null,
+        gender: deviceEditGender
+          ? (deviceEditGender as "MALE" | "FEMALE" | "OTHER")
+          : null,
       });
       if (result.success) {
         const status = await deviceService.getBindingStatus(profile.userId);
@@ -547,7 +549,6 @@ export const MapScreen = () => {
     }),
   );
 
-
   const lastActivity = activities.length > 0 ? activities[0] : null;
 
   // Swipe handling
@@ -604,10 +605,20 @@ export const MapScreen = () => {
         <button
           onClick={() => setIsSheetExpanded(false)}
           className="fixed left-4 z-[250] w-10 h-10 rounded-full bg-white border border-gray-300 flex items-center justify-center active:scale-95 transition shadow-sm"
-          style={{ top: 'calc(57px / 2)', transform: 'translateY(-50%)' }}
+          style={{ top: "calc(57px / 2)", transform: "translateY(-50%)" }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-gray-600">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="w-5 h-5 text-gray-600"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M6 18L18 6M6 6l12 12"
+            />
           </svg>
         </button>
       )}
@@ -686,10 +697,10 @@ export const MapScreen = () => {
       {/* 時間軸底部彈窗 */}
       <BottomSheet isExpanded={isSheetExpanded} onToggle={setIsSheetExpanded}>
         {/* 固定的 Header - 點擊切換展開/關閉 */}
-        <div 
-          className="bottom-sheet-header" 
+        <div
+          className="bottom-sheet-header"
           onClick={() => setIsSheetExpanded(!isSheetExpanded)}
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: "pointer" }}
         >
           <div className="timeline-header">
             <div className="device-info">
@@ -815,85 +826,84 @@ export const MapScreen = () => {
               overflow: "hidden",
             }}
           >
-          {!isBound ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 20px",
-                color: "#999",
-              }}
-            >
-              <p>請先綁定設備以查看活動記錄</p>
-            </div>
-          ) : activities.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 20px",
-                color: "#999",
-              }}
-            >
-              <p>尚無活動記錄</p>
-              <p style={{ fontSize: "14px", marginTop: "8px" }}>
-                當設備被接收器偵測到時，會顯示在這裡
-              </p>
-            </div>
-          ) : (
-            <div style={{ position: "relative", minHeight: "200px" }}>
-              {/* Timeline Panel */}
+            {!isBound ? (
               <div
                 style={{
-                  position:
-                    activePanel === "timeline" ? "relative" : "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  opacity: activePanel === "timeline" ? 1 : 0,
-                  transform:
-                    activePanel === "timeline"
-                      ? "translateX(0)"
-                      : "translateX(-100%)",
-                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                  pointerEvents: activePanel === "timeline" ? "auto" : "none",
+                  textAlign: "center",
+                  padding: "40px 20px",
+                  color: "#999",
                 }}
               >
-          
-
-                {/* Activity timeline */}
-                {dateGroups.map((group, index) => (
-                  <DateGroup key={index} date={group.date}>
-                    {group.activities.map((activity) => (
-                      <TimelineItem
-                        key={activity.id}
-                        activity={activity}
-                        onClick={() => handleActivityClick(activity)}
-                      />
-                    ))}
-                  </DateGroup>
-                ))}
+                <p>請先綁定設備以查看活動記錄</p>
               </div>
-
-              {/* Statistics Panel */}
+            ) : activities.length === 0 ? (
               <div
                 style={{
-                  position:
-                    activePanel === "statistics" ? "relative" : "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  opacity: activePanel === "statistics" ? 1 : 0,
-                  transform:
-                    activePanel === "statistics"
-                      ? "translateX(0)"
-                      : "translateX(100%)",
-                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                  pointerEvents: activePanel === "statistics" ? "auto" : "none",
+                  textAlign: "center",
+                  padding: "40px 20px",
+                  color: "#999",
                 }}
               >
-                <StatisticsPanel activities={activities} />
+                <p>尚無活動記錄</p>
+                <p style={{ fontSize: "14px", marginTop: "8px" }}>
+                  當設備被接收器偵測到時，會顯示在這裡
+                </p>
               </div>
-            </div>
-          )}
+            ) : (
+              <div style={{ position: "relative", minHeight: "200px" }}>
+                {/* Timeline Panel */}
+                <div
+                  style={{
+                    position:
+                      activePanel === "timeline" ? "relative" : "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    opacity: activePanel === "timeline" ? 1 : 0,
+                    transform:
+                      activePanel === "timeline"
+                        ? "translateX(0)"
+                        : "translateX(-100%)",
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                    pointerEvents: activePanel === "timeline" ? "auto" : "none",
+                  }}
+                >
+                  {/* Activity timeline */}
+                  {dateGroups.map((group, index) => (
+                    <DateGroup key={index} date={group.date}>
+                      {group.activities.map((activity) => (
+                        <TimelineItem
+                          key={activity.id}
+                          activity={activity}
+                          onClick={() => handleActivityClick(activity)}
+                        />
+                      ))}
+                    </DateGroup>
+                  ))}
+                </div>
+
+                {/* Statistics Panel */}
+                <div
+                  style={{
+                    position:
+                      activePanel === "statistics" ? "relative" : "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    opacity: activePanel === "statistics" ? 1 : 0,
+                    transform:
+                      activePanel === "statistics"
+                        ? "translateX(0)"
+                        : "translateX(100%)",
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                    pointerEvents:
+                      activePanel === "statistics" ? "auto" : "none",
+                  }}
+                >
+                  <StatisticsPanel activities={activities} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </BottomSheet>
@@ -905,15 +915,21 @@ export const MapScreen = () => {
         title={isBound ? "設備資訊" : "綁定設備"}
       >
         {isLoadingBinding ? (
-          <div style={{ 
-            display: "flex", 
-            flexDirection: "column", 
-            alignItems: "center", 
-            justifyContent: "center", 
-            padding: "40px 20px" 
-          }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "40px 20px",
+            }}
+          >
             <div className="loading-spinner" style={{ margin: "0 auto" }}></div>
-            <div style={{ marginTop: "12px", color: "#999", textAlign: "center" }}>載入中...</div>
+            <div
+              style={{ marginTop: "12px", color: "#999", textAlign: "center" }}
+            >
+              載入中...
+            </div>
           </div>
         ) : isBound && boundDevice ? (
           // 已綁定：產品序號唯讀，暱稱／年齡／性別可編輯
@@ -970,7 +986,7 @@ export const MapScreen = () => {
                   value={deviceEditAge === "" ? "" : deviceEditAge}
                   onChange={(e) =>
                     setDeviceEditAge(
-                      e.target.value === "" ? "" : parseInt(e.target.value, 10)
+                      e.target.value === "" ? "" : parseInt(e.target.value, 10),
                     )
                   }
                 />
@@ -984,11 +1000,19 @@ export const MapScreen = () => {
                   <div className="text-base text-gray-900">
                     {(() => {
                       const boundAt = boundDevice.boundAt as any;
-                      if (boundAt && typeof boundAt === "object" && boundAt.seconds) {
-                        return new Date(boundAt.seconds * 1000).toLocaleString("zh-TW");
+                      if (
+                        boundAt &&
+                        typeof boundAt === "object" &&
+                        boundAt.seconds
+                      ) {
+                        return new Date(boundAt.seconds * 1000).toLocaleString(
+                          "zh-TW",
+                        );
                       }
                       const date = new Date(boundAt);
-                      return isNaN(date.getTime()) ? "未知" : date.toLocaleString("zh-TW");
+                      return isNaN(date.getTime())
+                        ? "未知"
+                        : date.toLocaleString("zh-TW");
                     })()}
                   </div>
                 </div>
@@ -1110,9 +1134,20 @@ export const MapScreen = () => {
         onClose={() => setIsGatewayModalOpen(false)}
         title={selectedGateway?.location || "接收點詳情"}
         titleBadge={
-          selectedGateway && (
-            <span className="serial-badge">{selectedGateway.serialNumber}</span>
-          )
+          selectedGateway?.isAD && selectedGateway?.storeLogo ? (
+            <img
+              src={selectedGateway.storeLogo}
+              alt="店家Logo"
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                objectFit: "cover",
+                border: "3px solid #fff",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+              }}
+            />
+          ) : undefined
         }
       >
         {selectedGateway && (
@@ -1145,7 +1180,156 @@ export const MapScreen = () => {
                   </svg>
                   {getGatewayTypeLabel(selectedGateway.type)}
                 </span>
+                {selectedGateway.isAD && (
+                  <span
+                    className="badge"
+                    style={{
+                      backgroundColor: "#dcfce7",
+                      color: "#16a34a",
+                      border: "1px solid #86efac",
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      style={{ width: "14px", height: "14px" }}
+                    >
+                      <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+                    </svg>
+                    合作友善商家
+                  </span>
+                )}
               </div>
+            </div>
+
+            {/* 商家優惠區塊 - 僅在 isAD 為 true 時顯示 */}
+            {selectedGateway.isAD && (
+              <>
+                <div
+                  style={{
+                    borderTop: "1px solid #e5e7eb",
+                    margin: "16px 0",
+                  }}
+                />
+                <div className="store-promotion-section">
+                  <h3
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      color: "#374151",
+                      marginBottom: "12px",
+                      textAlign: "left",
+                    }}
+                  >
+                    商家優惠
+                  </h3>
+
+                  {selectedGateway.imageLink && (
+                    <div
+                      style={{
+                        position: "relative",
+                        width: "100%",
+                        paddingTop: "33.33%", // 3:1 比例
+                        marginBottom: "12px",
+                        borderRadius: "8px",
+                        overflow: "hidden",
+                        backgroundColor: "#f3f4f6",
+                      }}
+                    >
+                      <img
+                        src={selectedGateway.imageLink}
+                        alt="優惠活動"
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          display: "block",
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {selectedGateway.activityTitle && (
+                    <h4
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: "600",
+                        color: "#111827",
+                        marginBottom: "8px",
+                        textAlign: "left",
+                      }}
+                    >
+                      {selectedGateway.activityTitle}
+                    </h4>
+                  )}
+
+                  {selectedGateway.activityContent && (
+                    <p
+                      style={{
+                        fontSize: "14px",
+                        color: "#6b7280",
+                        lineHeight: "1.6",
+                        textAlign: "left",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {selectedGateway.activityContent}
+                    </p>
+                  )}
+
+                  {selectedGateway.websiteLink && (
+                    <a
+                      href={selectedGateway.websiteLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        marginTop: "12px",
+                        color: "#3b82f6",
+                        fontSize: "14px",
+                        textDecoration: "none",
+                      }}
+                    >
+                      <svg
+                        style={{
+                          width: "16px",
+                          height: "16px",
+                          marginRight: "4px",
+                        }}
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+                      </svg>
+                      前往官網
+                    </a>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Gateway 序號 - 灰色小字 */}
+            <div
+              style={{
+                marginTop: "16px",
+                paddingTop: "12px",
+                borderTop: "1px solid #f3f4f6",
+                textAlign: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: "#9ca3af",
+                  fontWeight: "400",
+                }}
+              >
+                接收點序號：{selectedGateway.serialNumber}
+              </span>
             </div>
 
             <div className="modal-actions">

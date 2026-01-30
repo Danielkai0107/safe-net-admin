@@ -160,6 +160,7 @@ export const sendAlertAssignment = async (
                 type: "button",
                 style: "primary",
                 color: "#22C55E",
+                height: "sm",
                 action: {
                   type: "postback",
                   label: "✓ 接受",
@@ -170,6 +171,7 @@ export const sendAlertAssignment = async (
               {
                 type: "button",
                 style: "secondary",
+                height: "sm",
                 action: {
                   type: "postback",
                   label: "✗ 拒絕",
@@ -182,6 +184,7 @@ export const sendAlertAssignment = async (
           {
             type: "button",
             style: "link",
+            height: "sm",
             action: {
               type: "uri",
               label:
@@ -232,6 +235,13 @@ interface NotificationPointData {
   latitude: number;
   longitude: number;
   timestamp: string;
+  // 商家相關資訊
+  isAD?: boolean;
+  storeLogo?: string;
+  imageLink?: string;
+  activityTitle?: string;
+  activityContent?: string;
+  websiteLink?: string;
 }
 
 export const sendNotificationPointAlert = async (
@@ -253,6 +263,7 @@ export const sendNotificationPointAlert = async (
   });
 
   const deviceName = data.deviceNickname || "您的設備";
+  const isStore = data.isAD === true;
 
   // 建立 Flex Message
   const flexMessage: FlexMessage = {
@@ -260,13 +271,28 @@ export const sendNotificationPointAlert = async (
     altText: `通知點警報：${data.gatewayName}`,
     contents: {
       type: "bubble",
+      // Header: 3:1 Banner 圖片（商家才有）
+      ...(isStore && data.imageLink
+        ? {
+            hero: {
+              type: "image" as const,
+              url: data.imageLink,
+              size: "full" as const,
+              aspectRatio: "3:1" as const,
+              aspectMode: "cover" as const,
+            },
+          }
+        : {}),
       body: {
         type: "box",
         layout: "vertical",
         contents: [
+          // 第一行：已通過 location (商家加上「守護合作商家」)
           {
             type: "text",
-            text: `${deviceName} 已經過`,
+            text: isStore
+              ? `${deviceName} 已經過 守護合作商家`
+              : `${deviceName} 已經過`,
             weight: "bold",
             size: "md",
             wrap: true,
@@ -365,16 +391,98 @@ export const sendNotificationPointAlert = async (
         type: "box",
         layout: "vertical",
         spacing: "sm",
+        paddingAll: "lg" as const,
         contents: [
+          // 商家優惠內容（如果是商家且有優惠活動）
+          ...(data.isAD && (data.activityTitle || data.activityContent)
+            ? [
+                {
+                  type: "separator" as const,
+                  margin: "lg" as const,
+                },
+                {
+                  type: "box" as const,
+                  layout: "vertical" as const,
+                  margin: "lg" as const,
+                  spacing: "lg" as const,
+                  paddingStart: "lg" as const,
+                  paddingEnd: "lg" as const,
+                  contents: [
+                    {
+                      type: "text" as const,
+                      text: "商家優惠",
+                      size: "sm" as const,
+                      color: "#666666",
+                      weight: "bold" as const,
+                    },
+                    // 優惠標題
+                    ...(data.activityTitle
+                      ? [
+                          {
+                            type: "text" as const,
+                            text: data.activityTitle,
+                            size: "md" as const,
+                            weight: "bold" as const,
+                            wrap: true,
+                            margin: "lg" as const,
+                          },
+                        ]
+                      : []),
+                    // 優惠內容
+                    ...(data.activityContent
+                      ? [
+                          {
+                            type: "text" as const,
+                            text: data.activityContent,
+                            size: "sm" as const,
+                            color: "#666666",
+                            wrap: true,
+                            margin: "md" as const,
+                          },
+                        ]
+                      : []),
+                  ],
+                },
+                {
+                  type: "separator" as const,
+                  margin: "lg" as const,
+                },
+              ]
+            : []),
+          // 按鈕水平排列
           {
-            type: "button",
-            style: "primary",
-            color: "#4ECDC4",
-            action: {
-              type: "uri",
-              label: "查看地圖",
-              uri: `https://www.google.com/maps?q=${data.latitude},${data.longitude}`,
-            },
+            type: "box",
+            layout: "horizontal",
+            spacing: "sm",
+            margin: "lg",
+            contents: [
+              {
+                type: "button",
+                style: "primary",
+                color: "#4ECDC4",
+                height: "sm",
+                action: {
+                  type: "uri",
+                  label: "查看地圖",
+                  uri: `https://www.google.com/maps?q=${data.latitude},${data.longitude}`,
+                },
+              },
+              // 店家資訊按鈕（如果是商家且有網站連結）
+              ...(data.isAD && data.websiteLink
+                ? [
+                    {
+                      type: "button" as const,
+                      style: "secondary" as const,
+                      height: "sm" as const,
+                      action: {
+                        type: "uri" as const,
+                        label: "店家資訊",
+                        uri: data.websiteLink,
+                      },
+                    },
+                  ]
+                : []),
+            ],
           },
           {
             type: "text",
@@ -382,7 +490,7 @@ export const sendNotificationPointAlert = async (
             size: "xs",
             color: "#999999",
             align: "center",
-            margin: "sm",
+            margin: "md",
           },
         ],
       },

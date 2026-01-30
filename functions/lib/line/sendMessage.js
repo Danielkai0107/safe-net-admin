@@ -143,6 +143,7 @@ const sendAlertAssignment = async (lineUserId, channelAccessToken, alertData) =>
                                 type: "button",
                                 style: "primary",
                                 color: "#22C55E",
+                                height: "sm",
                                 action: {
                                     type: "postback",
                                     label: "✓ 接受",
@@ -153,6 +154,7 @@ const sendAlertAssignment = async (lineUserId, channelAccessToken, alertData) =>
                             {
                                 type: "button",
                                 style: "secondary",
+                                height: "sm",
                                 action: {
                                     type: "postback",
                                     label: "✗ 拒絕",
@@ -165,6 +167,7 @@ const sendAlertAssignment = async (lineUserId, channelAccessToken, alertData) =>
                     {
                         type: "button",
                         style: "link",
+                        height: "sm",
                         action: {
                             type: "uri",
                             label: alertData.latitude && alertData.longitude
@@ -214,19 +217,31 @@ const sendNotificationPointAlert = async (lineUserId, channelAccessToken, data) 
         minute: "2-digit",
     });
     const deviceName = data.deviceNickname || "您的設備";
+    const isStore = data.isAD === true;
     // 建立 Flex Message
     const flexMessage = {
         type: "flex",
         altText: `通知點警報：${data.gatewayName}`,
-        contents: {
-            type: "bubble",
-            body: {
+        contents: Object.assign(Object.assign({ type: "bubble" }, (isStore && data.imageLink
+            ? {
+                hero: {
+                    type: "image",
+                    url: data.imageLink,
+                    size: "full",
+                    aspectRatio: "3:1",
+                    aspectMode: "cover",
+                },
+            }
+            : {})), { body: {
                 type: "box",
                 layout: "vertical",
                 contents: [
+                    // 第一行：已通過 location (商家加上「守護合作商家」)
                     {
                         type: "text",
-                        text: `${deviceName} 已經過`,
+                        text: isStore
+                            ? `${deviceName} 已經過 守護合作商家`
+                            : `${deviceName} 已經過`,
                         weight: "bold",
                         size: "md",
                         wrap: true,
@@ -320,21 +335,102 @@ const sendNotificationPointAlert = async (lineUserId, channelAccessToken, data) 
                         ],
                     },
                 ],
-            },
-            footer: {
+            }, footer: {
                 type: "box",
                 layout: "vertical",
                 spacing: "sm",
+                paddingAll: "lg",
                 contents: [
+                    // 商家優惠內容（如果是商家且有優惠活動）
+                    ...(data.isAD && (data.activityTitle || data.activityContent)
+                        ? [
+                            {
+                                type: "separator",
+                                margin: "lg",
+                            },
+                            {
+                                type: "box",
+                                layout: "vertical",
+                                margin: "lg",
+                                spacing: "lg",
+                                paddingStart: "lg",
+                                paddingEnd: "lg",
+                                contents: [
+                                    {
+                                        type: "text",
+                                        text: "商家優惠",
+                                        size: "sm",
+                                        color: "#666666",
+                                        weight: "bold",
+                                    },
+                                    // 優惠標題
+                                    ...(data.activityTitle
+                                        ? [
+                                            {
+                                                type: "text",
+                                                text: data.activityTitle,
+                                                size: "md",
+                                                weight: "bold",
+                                                wrap: true,
+                                                margin: "lg",
+                                            },
+                                        ]
+                                        : []),
+                                    // 優惠內容
+                                    ...(data.activityContent
+                                        ? [
+                                            {
+                                                type: "text",
+                                                text: data.activityContent,
+                                                size: "sm",
+                                                color: "#666666",
+                                                wrap: true,
+                                                margin: "md",
+                                            },
+                                        ]
+                                        : []),
+                                ],
+                            },
+                            {
+                                type: "separator",
+                                margin: "lg",
+                            },
+                        ]
+                        : []),
+                    // 按鈕水平排列
                     {
-                        type: "button",
-                        style: "primary",
-                        color: "#4ECDC4",
-                        action: {
-                            type: "uri",
-                            label: "查看地圖",
-                            uri: `https://www.google.com/maps?q=${data.latitude},${data.longitude}`,
-                        },
+                        type: "box",
+                        layout: "horizontal",
+                        spacing: "sm",
+                        margin: "lg",
+                        contents: [
+                            {
+                                type: "button",
+                                style: "primary",
+                                color: "#4ECDC4",
+                                height: "sm",
+                                action: {
+                                    type: "uri",
+                                    label: "查看地圖",
+                                    uri: `https://www.google.com/maps?q=${data.latitude},${data.longitude}`,
+                                },
+                            },
+                            // 店家資訊按鈕（如果是商家且有網站連結）
+                            ...(data.isAD && data.websiteLink
+                                ? [
+                                    {
+                                        type: "button",
+                                        style: "secondary",
+                                        height: "sm",
+                                        action: {
+                                            type: "uri",
+                                            label: "店家資訊",
+                                            uri: data.websiteLink,
+                                        },
+                                    },
+                                ]
+                                : []),
+                        ],
                     },
                     {
                         type: "text",
@@ -342,11 +438,10 @@ const sendNotificationPointAlert = async (lineUserId, channelAccessToken, data) 
                         size: "xs",
                         color: "#999999",
                         align: "center",
-                        margin: "sm",
+                        margin: "md",
                     },
                 ],
-            },
-        },
+            } }),
     };
     // 發送訊息
     await client.pushMessage(lineUserId, flexMessage);

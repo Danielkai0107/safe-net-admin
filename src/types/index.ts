@@ -215,7 +215,14 @@ export interface Gateway {
   longitude?: number;
   deviceInfo?: any;
   isActive: boolean;
-  isAD?: boolean; // 行銷點
+  isAD?: boolean; // 行銷點（店家）
+  // 店家專用欄位（isAD 為 true 時使用）
+  storeLogo?: string; // 店家 logo 連結
+  imageLink?: string; // 圖片連結
+  websiteLink?: string; // 官網連結
+  activityTitle?: string; // 活動標題
+  activityContent?: string; // 活動內容
+  storePassword?: string; // 商家簡單登入驗證用密碼
   tenant?: Tenant;
 }
 

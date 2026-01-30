@@ -1,12 +1,13 @@
-import * as admin from 'firebase-admin';
-import { onRequest } from 'firebase-functions/v2/https';
+import * as admin from "firebase-admin";
+import { onRequest } from "firebase-functions/v2/https";
+import { processBeacon, BeaconData, GatewayInfo } from "./receiveBeaconData";
 
 /**
  * Minew Gateway Adapter
- * 
+ *
  * 此服務接收 Minew MG6 gateway（JSON-LONG 格式）的資料，
  * 轉換後呼叫現有的 beacon 處理邏輯。
- * 
+ *
  * Minew JSON-LONG 格式範例：
  * [
  *   {
@@ -17,18 +18,30 @@ import { onRequest } from 'firebase-functions/v2/https';
  *     "rawData": "0201061AFF4C000215E2C56DB5DFFB48D2B060D0F5A71096E000010001C5"
  *   }
  * ]
- * 
+ *
  * 轉換後呼叫 processBeacon 處理
  */
 
-// Type definitions
-interface MinewJsonLongItem {
-  timestamp: string;           // ISO 8601 format: "2018-01-22T11:10:28Z"
-  type: string;                // "iBeacon", "Unknown", etc.
-  mac: string;                 // Beacon MAC: "AC233F23FFCE"
-  bleName?: string;            // Bluetooth name (optional)
-  rssi: number;                // Signal strength: -59
-  rawData: string;             // Raw BLE advertising data in hex
+// Type definitions - supports both JSON-LONG and JSON-SHORT formats
+interface MinewBeaconItem {
+  timestamp: string; // ISO 8601 format: "2018-01-22T11:10:28Z"
+  type: string; // "iBeacon", "Unknown", "Gateway", etc.
+  mac: string; // Beacon MAC: "AC233F23FFCE"
+  bleName?: string; // Bluetooth name (optional)
+  rssi: number; // Signal strength: -59
+  // JSON-LONG format fields (可能是 rawData 或 raw)
+  rawData?: string; // Raw BLE advertising data in hex
+  raw?: string; // Alternative field name for rawData
+  // JSON-SHORT format fields (直接提供 iBeacon 資料)
+  uuid?: string; // iBeacon UUID (JSON-SHORT)
+  major?: number; // iBeacon Major (JSON-SHORT)
+  minor?: number; // iBeacon Minor (JSON-SHORT)
+  txPower?: number; // TX Power (JSON-SHORT)
+  battery?: number; // Battery level (JSON-SHORT)
+  // 其他可能的欄位
+  ibeaconUuid?: string; // Alternative UUID field
+  ibeaconMajor?: number; // Alternative Major field
+  ibeaconMinor?: number; // Alternative Minor field
 }
 
 interface ParsedIBeacon {
@@ -39,22 +52,11 @@ interface ParsedIBeacon {
   batteryLevel?: number;
 }
 
-interface GatewayInfo {
-  id: string;
-  tenantId: string | null;
-  serialNumber: string;
-  macAddress?: string;
-  name: string;
-  location?: string;
-  type: 'SCHOOL_ZONE' | 'SAFE_ZONE' | 'OBSERVE_ZONE' | 'INACTIVE';
-  latitude?: number;
-  longitude?: number;
-  isActive: boolean;
-}
+// GatewayInfo is imported from receiveBeaconData
 
 interface ProcessingResult {
   mac: string;
-  status: 'processed' | 'skipped' | 'error';
+  status: "processed" | "skipped" | "error";
   reason?: string;
 }
 
@@ -65,25 +67,25 @@ async function logError(
   functionName: string,
   errorMessage: string,
   errorStack: string | undefined,
-  payload: any
+  payload: any,
 ): Promise<void> {
   try {
     const db = admin.firestore();
-    await db.collection('error_logs').add({
+    await db.collection("error_logs").add({
       function_name: functionName,
       error_message: errorMessage,
-      error_stack: errorStack || 'No stack trace available',
+      error_stack: errorStack || "No stack trace available",
       payload: payload,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (logError) {
-    console.error('Failed to log error to Firestore:', logError);
+    console.error("Failed to log error to Firestore:", logError);
   }
 }
 
 /**
  * Parse iBeacon data from rawData hex string
- * 
+ *
  * iBeacon rawData structure:
  * - Prefix varies, but iBeacon identifier is: 4C000215
  * - UUID: 16 bytes (32 hex chars)
@@ -103,7 +105,7 @@ function parseIBeaconFromRawData(rawData: string): ParsedIBeacon | null {
   // 4C00 = Apple Company ID (little endian)
   // 02 = iBeacon type
   // 15 = length (21 bytes = 0x15)
-  const iBeaconMarker = '4C000215';
+  const iBeaconMarker = "4C000215";
   const markerIndex = data.indexOf(iBeaconMarker);
 
   if (markerIndex === -1) {
@@ -112,7 +114,7 @@ function parseIBeaconFromRawData(rawData: string): ParsedIBeacon | null {
 
   // iBeacon data starts after the marker
   const iBeaconDataStart = markerIndex + iBeaconMarker.length;
-  
+
   // We need at least 42 characters after marker (16 bytes UUID + 2 bytes Major + 2 bytes Minor + 1 byte TX)
   if (data.length < iBeaconDataStart + 42) {
     return null;
@@ -125,15 +127,24 @@ function parseIBeaconFromRawData(rawData: string): ParsedIBeacon | null {
     const uuid = `${uuidHex.substring(0, 8)}-${uuidHex.substring(8, 12)}-${uuidHex.substring(12, 16)}-${uuidHex.substring(16, 20)}-${uuidHex.substring(20, 32)}`;
 
     // Extract Major (4 hex chars = 2 bytes, big endian)
-    const majorHex = data.substring(iBeaconDataStart + 32, iBeaconDataStart + 36);
+    const majorHex = data.substring(
+      iBeaconDataStart + 32,
+      iBeaconDataStart + 36,
+    );
     const major = parseInt(majorHex, 16);
 
     // Extract Minor (4 hex chars = 2 bytes, big endian)
-    const minorHex = data.substring(iBeaconDataStart + 36, iBeaconDataStart + 40);
+    const minorHex = data.substring(
+      iBeaconDataStart + 36,
+      iBeaconDataStart + 40,
+    );
     const minor = parseInt(minorHex, 16);
 
     // Extract TX Power (2 hex chars = 1 byte, signed)
-    const txPowerHex = data.substring(iBeaconDataStart + 40, iBeaconDataStart + 42);
+    const txPowerHex = data.substring(
+      iBeaconDataStart + 40,
+      iBeaconDataStart + 42,
+    );
     let txPower = parseInt(txPowerHex, 16);
     // Convert to signed value
     if (txPower > 127) {
@@ -147,7 +158,7 @@ function parseIBeaconFromRawData(rawData: string): ParsedIBeacon | null {
       txPower,
     };
   } catch (error) {
-    console.error('Error parsing iBeacon data:', error);
+    console.error("Error parsing iBeacon data:", error);
     return null;
   }
 }
@@ -159,10 +170,10 @@ function parseIBeaconFromRawData(rawData: string): ParsedIBeacon | null {
 function parseBatteryFromRawData(_rawData: string): number | undefined {
   // Minew battery format varies, this is a simplified implementation
   // You may need to adjust based on your specific beacon model
-  
+
   // Look for Minew specific data (Company ID: 0x0059 or similar patterns)
   // This is beacon-model specific and may need adjustment
-  
+
   // For now, return undefined as battery parsing is optional
   return undefined;
 }
@@ -172,19 +183,19 @@ function parseBatteryFromRawData(_rawData: string): number | undefined {
  * Returns a Set of uppercase UUIDs for fast lookup
  */
 async function getAllowedUuids(
-  db: admin.firestore.Firestore
+  db: admin.firestore.Firestore,
 ): Promise<Set<string>> {
   try {
     const uuidsQuery = await db
-      .collection('uuids')
-      .where('isActive', '==', true)
+      .collection("uuids")
+      .where("isActive", "==", true)
       .get();
 
     const allowedUuids = new Set<string>();
-    
+
     for (const doc of uuidsQuery.docs) {
       const data = doc.data();
-      if (data.uuid && typeof data.uuid === 'string') {
+      if (data.uuid && typeof data.uuid === "string") {
         // Normalize UUID to uppercase for consistent matching
         allowedUuids.add(data.uuid.toUpperCase());
       }
@@ -193,7 +204,7 @@ async function getAllowedUuids(
     console.log(`Loaded ${allowedUuids.size} allowed UUIDs from beacon_uuids`);
     return allowedUuids;
   } catch (error) {
-    console.error('Error fetching allowed UUIDs:', error);
+    console.error("Error fetching allowed UUIDs:", error);
     throw error;
   }
 }
@@ -203,17 +214,17 @@ async function getAllowedUuids(
  */
 async function getGatewayByMac(
   macAddress: string,
-  db: admin.firestore.Firestore
+  db: admin.firestore.Firestore,
 ): Promise<GatewayInfo | null> {
   try {
     // Normalize MAC address (remove colons, uppercase)
-    const normalizedMac = macAddress.replace(/:/g, '').toUpperCase();
+    const normalizedMac = macAddress.replace(/:/g, "").toUpperCase();
 
     // Try to find gateway by macAddress
     const gatewayQuery = await db
-      .collection('gateways')
-      .where('macAddress', '==', normalizedMac)
-      .where('isActive', '==', true)
+      .collection("gateways")
+      .where("macAddress", "==", normalizedMac)
+      .where("isActive", "==", true)
       .limit(1)
       .get();
 
@@ -227,83 +238,62 @@ async function getGatewayByMac(
       ...gatewayDoc.data(),
     } as GatewayInfo;
   } catch (error) {
-    console.error('Error querying gateway:', error);
+    console.error("Error querying gateway:", error);
     throw error;
   }
 }
 
 /**
- * Process a single beacon and update device status
+ * Get or auto-register gateway
+ * If gateway not found, create a new one automatically
  */
-async function processBeaconData(
-  beacon: ParsedIBeacon,
-  rssi: number,
-  gateway: GatewayInfo,
-  timestamp: number,
-  db: admin.firestore.Firestore
-): Promise<{ status: 'updated' | 'ignored'; deviceId?: string }> {
-  // Normalize UUID to lowercase for case-insensitive matching
-  const normalizedUuid = beacon.uuid.toLowerCase();
-
-  try {
-    // Find device by UUID + Major + Minor
-    // Note: UUID is normalized to lowercase for case-insensitive matching
-    const deviceQuery = await db
-      .collection('devices')
-      .where('uuid', '==', normalizedUuid)
-      .where('major', '==', beacon.major)
-      .where('minor', '==', beacon.minor)
-      .where('isActive', '==', true)
-      .limit(1)
-      .get();
-
-    if (deviceQuery.empty) {
-      console.log(`No active device found for UUID ${normalizedUuid}, Major ${beacon.major}, Minor ${beacon.minor}`);
-      return { status: 'ignored' };
-    }
-
-    const deviceDoc = deviceQuery.docs[0];
-    const deviceId = deviceDoc.id;
-
-    // Update device status
-    const updateData: any = {
-      lastSeen: new Date(timestamp).toISOString(),
-      lastRssi: rssi,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    if (beacon.batteryLevel !== undefined) {
-      updateData.batteryLevel = beacon.batteryLevel;
-    }
-
-    await deviceDoc.ref.update(updateData);
-
-    // Record activity
-    const lat = gateway.latitude ?? 0;
-    const lng = gateway.longitude ?? 0;
-
-    await db.collection('devices').doc(deviceId)
-      .collection('activities')
-      .add({
-        timestamp: admin.firestore.Timestamp.fromMillis(timestamp),
-        gatewayId: gateway.id,
-        gatewayName: gateway.name,
-        gatewayType: gateway.type,
-        latitude: lat,
-        longitude: lng,
-        rssi: rssi,
-        triggeredNotification: false,
-        notificationType: null,
-        notificationDetails: null,
-      });
-
-    console.log(`Updated device ${deviceId} via Minew adapter`);
-    return { status: 'updated', deviceId };
-  } catch (error) {
-    console.error(`Error processing beacon:`, error);
-    throw error;
+async function getOrCreateGateway(
+  macAddress: string,
+  db: admin.firestore.Firestore,
+): Promise<GatewayInfo> {
+  // First try to find existing gateway
+  const existing = await getGatewayByMac(macAddress, db);
+  if (existing) {
+    return existing;
   }
+
+  // Normalize MAC address
+  const normalizedMac = macAddress.replace(/:/g, "").toUpperCase();
+
+  console.log(`Auto-registering new Minew gateway: ${normalizedMac}`);
+
+  // Auto-create gateway
+  const newGateway = {
+    macAddress: normalizedMac,
+    serialNumber: normalizedMac,
+    name: `Minew-${normalizedMac.substring(normalizedMac.length - 6)}`,
+    location: `Auto-registered at ${new Date().toISOString()}`,
+    type: "SAFE_ZONE" as const,
+    tenantId: null,
+    isActive: true,
+    isAD: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const docRef = await db.collection("gateways").add(newGateway);
+  console.log(`Gateway auto-registered with ID: ${docRef.id}`);
+
+  return {
+    id: docRef.id,
+    macAddress: normalizedMac,
+    serialNumber: normalizedMac,
+    name: newGateway.name,
+    location: newGateway.location,
+    type: newGateway.type,
+    tenantId: null,
+    isActive: true,
+    isAD: false,
+  } as GatewayInfo;
 }
+
+// processBeaconData removed - now using imported processBeacon from receiveBeaconData
+// which includes full notification logic (ELDER, MAP_USER, LINE_USER)
 
 /**
  * Extract gateway MAC from request headers
@@ -312,23 +302,23 @@ async function processBeaconData(
 function extractGatewayMac(req: any): string | null {
   // Try common header names used by Minew gateways
   const possibleHeaders = [
-    'x-gateway-mac',
-    'gateway-mac',
-    'x-minew-gateway',
-    'mac',
-    'device-mac',
+    "x-gateway-mac",
+    "gateway-mac",
+    "x-minew-gateway",
+    "mac",
+    "device-mac",
   ];
 
   for (const header of possibleHeaders) {
     const value = req.headers[header];
-    if (value && typeof value === 'string') {
-      return value.replace(/:/g, '').toUpperCase();
+    if (value && typeof value === "string") {
+      return value.replace(/:/g, "").toUpperCase();
     }
   }
 
   // Try to get from query parameter
   if (req.query?.gateway_mac) {
-    return String(req.query.gateway_mac).replace(/:/g, '').toUpperCase();
+    return String(req.query.gateway_mac).replace(/:/g, "").toUpperCase();
   }
 
   return null;
@@ -336,10 +326,10 @@ function extractGatewayMac(req: any): string | null {
 
 /**
  * Main Cloud Function: Minew Gateway Adapter
- * 
+ *
  * 接收 Minew MG6 gateway 的 JSON-LONG 格式資料，
  * 解析後更新 device 狀態和記錄活動。
- * 
+ *
  * Gateway 設定：
  * - URL: https://minewgateway-xxxxx.a.run.app?gateway_mac=YOUR_MAC
  * - Data Format: JSON-LONG
@@ -349,16 +339,16 @@ export const minewGateway = onRequest(
   {
     cors: true,
     timeoutSeconds: 60,
-    memory: '256MiB',
+    memory: "256MiB",
   },
   async (req, res) => {
     const startTime = Date.now();
 
     // Only accept POST requests
-    if (req.method !== 'POST') {
+    if (req.method !== "POST") {
       res.status(405).json({
         success: false,
-        error: 'Method not allowed. Use POST.',
+        error: "Method not allowed. Use POST.",
       });
       return;
     }
@@ -371,36 +361,32 @@ export const minewGateway = onRequest(
 
       // If not in headers, try to get from request body wrapper
       if (!gatewayMac && req.body?.gatewayMac) {
-        gatewayMac = String(req.body.gatewayMac).replace(/:/g, '').toUpperCase();
+        gatewayMac = String(req.body.gatewayMac)
+          .replace(/:/g, "")
+          .toUpperCase();
       }
 
       if (!gatewayMac) {
-        console.warn('No gateway MAC provided');
+        console.warn("No gateway MAC provided");
         res.status(400).json({
           success: false,
-          error: 'Missing gateway MAC address. Please set gateway_mac query parameter or x-gateway-mac header.',
+          error:
+            "Missing gateway MAC address. Please set gateway_mac query parameter or x-gateway-mac header.",
         });
         return;
       }
 
       console.log(`Received data from gateway: ${gatewayMac}`);
 
-      // Step 2: Get gateway info from database
-      const gateway = await getGatewayByMac(gatewayMac, db);
+      // Step 2: Get or auto-register gateway
+      const gateway = await getOrCreateGateway(gatewayMac, db);
 
-      if (!gateway) {
-        console.warn(`Gateway not found: ${gatewayMac}`);
-        res.status(404).json({
-          success: false,
-          error: `Gateway not registered: ${gatewayMac}. Please register the gateway first.`,
-        });
-        return;
-      }
-
-      console.log(`Gateway found: ${gateway.name} (${gateway.type}) - lat: ${gateway.latitude}, lng: ${gateway.longitude}`);
+      console.log(
+        `Gateway: ${gateway.name} (${gateway.type}) - lat: ${gateway.latitude ?? "N/A"}, lng: ${gateway.longitude ?? "N/A"}`,
+      );
 
       // Step 3: Parse request body
-      let beaconItems: MinewJsonLongItem[] = [];
+      let beaconItems: MinewBeaconItem[] = [];
 
       if (Array.isArray(req.body)) {
         // Direct array format
@@ -408,31 +394,38 @@ export const minewGateway = onRequest(
       } else if (req.body?.data && Array.isArray(req.body.data)) {
         // Wrapped format: { data: [...] }
         beaconItems = req.body.data;
-      } else if (typeof req.body === 'object' && req.body !== null) {
+      } else if (typeof req.body === "object" && req.body !== null) {
         // Single item format
-        beaconItems = [req.body as MinewJsonLongItem];
+        beaconItems = [req.body as MinewBeaconItem];
       }
 
       if (beaconItems.length === 0) {
-        console.log('No beacon data received');
+        console.log("No beacon data received");
         res.status(200).json({
           success: true,
-          message: 'No beacon data to process',
+          message: "No beacon data to process",
           processed: 0,
         });
         return;
       }
 
       console.log(`Processing ${beaconItems.length} beacon items`);
+      // Log first item structure for debugging
+      if (beaconItems.length > 0) {
+        console.log(
+          `[DEBUG] First beacon item: ${JSON.stringify(beaconItems[0])}`,
+        );
+      }
 
       // Step 4: Load allowed UUIDs from beacon_uuids collection
       const allowedUuids = await getAllowedUuids(db);
 
       if (allowedUuids.size === 0) {
-        console.warn('No allowed UUIDs found in beacon_uuids collection');
+        console.warn("No allowed UUIDs found in beacon_uuids collection");
         res.status(200).json({
           success: true,
-          message: 'No allowed UUIDs configured. Please add UUIDs to beacon_uuids collection.',
+          message:
+            "No allowed UUIDs configured. Please add UUIDs to beacon_uuids collection.",
           processed: 0,
           skipped: beaconItems.length,
         });
@@ -446,43 +439,108 @@ export const minewGateway = onRequest(
       let filteredCount = 0;
 
       for (const item of beaconItems) {
-        // Skip if no rawData
-        if (!item.rawData) {
-          results.push({
-            mac: item.mac || 'unknown',
-            status: 'skipped',
-            reason: 'No rawData',
-          });
+        // Skip Gateway type (not a beacon)
+        if (item.type === "Gateway") {
+          console.log(`[DEBUG] MAC ${item.mac}: Gateway type, skipping`);
           skippedCount++;
           continue;
         }
 
-        // Parse iBeacon data from rawData
-        const parsedBeacon = parseIBeaconFromRawData(item.rawData);
+        // Log raw item for debugging
+        // Get raw data (支援 rawData 或 raw 欄位)
+        const rawDataField = item.rawData || item.raw || null;
+        // Get UUID (支援多種欄位名)
+        const uuidField =
+          item.uuid || item.ibeaconUuid || (item as any).iBeaconUuid || null;
+        const majorField =
+          item.major ?? item.ibeaconMajor ?? (item as any).iBeaconMajor ?? null;
+        const minorField =
+          item.minor ?? item.ibeaconMinor ?? (item as any).iBeaconMinor ?? null;
 
+        console.log(
+          `[DEBUG] Processing: MAC=${item.mac}, type=${item.type}, uuid=${uuidField || "N/A"}, major=${majorField ?? "N/A"}, minor=${minorField ?? "N/A"}, raw=${rawDataField ? rawDataField.substring(0, 30) + "..." : "N/A"}`,
+        );
+
+        // Try to get iBeacon data - support both JSON-SHORT and JSON-LONG formats
+        let parsedBeacon: ParsedIBeacon | null = null;
+
+        // Method 1: JSON-SHORT format (直接有 uuid, major, minor 欄位)
+        if (uuidField && majorField !== null && minorField !== null) {
+          parsedBeacon = {
+            uuid: uuidField,
+            major: Number(majorField),
+            minor: Number(minorField),
+            txPower: item.txPower ?? -59,
+            batteryLevel: item.battery,
+          };
+          console.log(`[DEBUG] MAC ${item.mac}: Using JSON-SHORT format`);
+        }
+        // Method 2: JSON-LONG format (從 rawData 或 raw 解析)
+        else if (rawDataField) {
+          parsedBeacon = parseIBeaconFromRawData(rawDataField);
+          if (parsedBeacon) {
+            parsedBeacon.batteryLevel = parseBatteryFromRawData(rawDataField);
+            console.log(
+              `[DEBUG] MAC ${item.mac}: Using JSON-LONG format (parsed from raw)`,
+            );
+          }
+        }
+
+        // Skip if cannot parse iBeacon data
         if (!parsedBeacon) {
+          console.log(
+            `[DEBUG] MAC ${item.mac}: Cannot parse iBeacon data. Available fields: ${Object.keys(item).join(", ")}`,
+          );
           results.push({
-            mac: item.mac || 'unknown',
-            status: 'skipped',
-            reason: 'Not an iBeacon or invalid rawData',
+            mac: item.mac || "unknown",
+            status: "skipped",
+            reason: "Cannot parse iBeacon data",
           });
           skippedCount++;
           continue;
         }
 
-        // Check if UUID is in the allowed list (beacon_uuids)
-        if (!allowedUuids.has(parsedBeacon.uuid.toUpperCase())) {
+        // Normalize UUID: remove dashes and convert to uppercase for comparison
+        const normalizeUuid = (uuid: string): string => {
+          return uuid.replace(/-/g, "").toUpperCase();
+        };
+
+        // Format UUID with dashes: 8-4-4-4-12
+        const formatUuidWithDashes = (uuid: string): string => {
+          const clean = uuid.replace(/-/g, "").toUpperCase();
+          if (clean.length !== 32) return uuid;
+          return `${clean.substring(0, 8)}-${clean.substring(8, 12)}-${clean.substring(12, 16)}-${clean.substring(16, 20)}-${clean.substring(20, 32)}`;
+        };
+
+        // Normalize the parsed UUID
+        const normalizedParsedUuid = normalizeUuid(parsedBeacon.uuid);
+        // Also store formatted version for later use
+        parsedBeacon.uuid = formatUuidWithDashes(parsedBeacon.uuid);
+
+        // Log parsed beacon info
+        console.log(
+          `[DEBUG] MAC ${item.mac}: iBeacon - UUID: ${parsedBeacon.uuid}, Major: ${parsedBeacon.major}, Minor: ${parsedBeacon.minor}`,
+        );
+
+        // Check if UUID is in the allowed list (normalize both for comparison)
+        const normalizedAllowedUuids = new Set(
+          Array.from(allowedUuids).map(normalizeUuid),
+        );
+
+        if (!normalizedAllowedUuids.has(normalizedParsedUuid)) {
+          console.log(
+            `[DEBUG] UUID ${parsedBeacon.uuid} not in whitelist. Allowed: [${Array.from(allowedUuids).join(", ")}]`,
+          );
           results.push({
-            mac: item.mac || 'unknown',
-            status: 'skipped',
+            mac: item.mac || "unknown",
+            status: "skipped",
             reason: `UUID not in whitelist: ${parsedBeacon.uuid}`,
           });
           filteredCount++;
           continue;
         }
 
-        // Add battery level if available
-        parsedBeacon.batteryLevel = parseBatteryFromRawData(item.rawData);
+        console.log(`[DEBUG] MAC ${item.mac}: UUID matched whitelist!`);
 
         // Parse timestamp
         let timestamp: number;
@@ -493,42 +551,54 @@ export const minewGateway = onRequest(
           timestamp = Date.now();
         }
 
-        // Process the beacon
+        // Process the beacon using unified processBeacon (includes notification logic)
         try {
-          const result = await processBeaconData(
-            parsedBeacon,
-            item.rssi || -100,
-            gateway,
+          // Convert to BeaconData format for processBeacon
+          const beaconData: BeaconData = {
+            uuid: parsedBeacon.uuid,
+            major: parsedBeacon.major,
+            minor: parsedBeacon.minor,
+            rssi: item.rssi || -100,
+            batteryLevel: parsedBeacon.batteryLevel,
+          };
+
+          const result = await processBeacon(
+            beaconData,
+            gateway as GatewayInfo,
+            gateway.latitude ?? 0,
+            gateway.longitude ?? 0,
             timestamp,
-            db
+            db,
           );
 
-          if (result.status === 'updated') {
+          if (result.status === "updated" || result.status === "created") {
             results.push({
-              mac: item.mac || 'unknown',
-              status: 'processed',
+              mac: item.mac || "unknown",
+              status: "processed",
             });
             processedCount++;
           } else {
             results.push({
-              mac: item.mac || 'unknown',
-              status: 'skipped',
-              reason: 'Device not found',
+              mac: item.mac || "unknown",
+              status: "skipped",
+              reason: "Device not found",
             });
             skippedCount++;
           }
         } catch (error) {
           results.push({
-            mac: item.mac || 'unknown',
-            status: 'error',
-            reason: error instanceof Error ? error.message : 'Unknown error',
+            mac: item.mac || "unknown",
+            status: "error",
+            reason: error instanceof Error ? error.message : "Unknown error",
           });
         }
       }
 
       const processingTime = Date.now() - startTime;
 
-      console.log(`Processing complete: ${processedCount} processed, ${skippedCount} skipped, ${filteredCount} filtered by UUID (${processingTime}ms)`);
+      console.log(
+        `Processing complete: ${processedCount} processed, ${skippedCount} skipped, ${filteredCount} filtered by UUID (${processingTime}ms)`,
+      );
 
       res.status(200).json({
         success: true,
@@ -543,21 +613,20 @@ export const minewGateway = onRequest(
         filteredByUuid: filteredCount,
         processingTime: processingTime,
       });
-
     } catch (error) {
-      console.error('Unexpected error in minewGateway:', error);
+      console.error("Unexpected error in minewGateway:", error);
 
       await logError(
-        'minewGateway',
+        "minewGateway",
         error instanceof Error ? error.message : String(error),
         error instanceof Error ? error.stack : undefined,
-        req.body
+        req.body,
       );
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error. Please check logs.',
+        error: "Internal server error. Please check logs.",
       });
     }
-  }
+  },
 );

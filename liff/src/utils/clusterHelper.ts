@@ -94,13 +94,10 @@ export const clusterGateways = (
  * @returns Distance threshold in meters
  */
 export const getClusterThresholdByZoom = (zoomLevel: number): number => {
-  // Zoom level 10: ~100km threshold
-  // Zoom level 15: ~1km threshold
-  // Zoom level 20: ~10m threshold
-  if (zoomLevel <= 10) return 10000; // 10km
-  if (zoomLevel <= 12) return 5000; // 5km
-  if (zoomLevel <= 14) return 1000; // 1km
-  if (zoomLevel <= 16) return 500; // 500m
-  if (zoomLevel <= 18) return 100; // 100m
+  // 平衡的聚合閾值設定
+  if (zoomLevel <= 10) return 3000; // 3km
+  if (zoomLevel <= 12) return 1000; // 1km
+  if (zoomLevel <= 14) return 300; // 300m
+  if (zoomLevel <= 16) return 100; // 100m
   return 50; // 50m
 };

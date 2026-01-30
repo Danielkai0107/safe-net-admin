@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "deviceStatus": {
+      ".read": false,
+      ".write": true
+    },
+    "activityCooldowns": {
+      ".read": false,
+      ".write": true
+    },
+    "notificationCooldowns": {
+      ".read": false,
+      ".write": true
+    }
+  }
+}

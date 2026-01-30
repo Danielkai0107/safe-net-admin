@@ -1,15 +1,16 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { LayoutDashboard } from 'lucide-react';
-import { authService } from '../services/authService';
-import { useAuthStore } from '../store/authStore';
-import type { LoginRequest } from '../types';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { authService } from "../services/authService";
+import { useAuthStore } from "../store/authStore";
+import type { LoginRequest } from "../types";
+
+const haloLogo = new URL("../assets/halo_logo.png", import.meta.url).href;
 
 export const LoginPage = () => {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const {
@@ -21,26 +22,26 @@ export const LoginPage = () => {
   const onSubmit = async (data: LoginRequest) => {
     try {
       setLoading(true);
-      setError('');
+      setError("");
       const response = await authService.login(data.email, data.password);
       login(response.data.user, response.data.access_token);
-      navigate('/dashboard');
+      navigate("/dashboard");
     } catch (err: any) {
-      console.error('Login error:', err);
-      let errorMessage = '登入失敗，請檢查帳號密碼';
-      
-      if (err.code === 'auth/user-not-found') {
-        errorMessage = '找不到此帳號';
-      } else if (err.code === 'auth/wrong-password') {
-        errorMessage = '密碼錯誤';
-      } else if (err.code === 'auth/invalid-email') {
-        errorMessage = '電子郵件格式不正確';
-      } else if (err.code === 'auth/invalid-credential') {
-        errorMessage = '帳號或密碼錯誤';
+      console.error("Login error:", err);
+      let errorMessage = "登入失敗，請檢查帳號密碼";
+
+      if (err.code === "auth/user-not-found") {
+        errorMessage = "找不到此帳號";
+      } else if (err.code === "auth/wrong-password") {
+        errorMessage = "密碼錯誤";
+      } else if (err.code === "auth/invalid-email") {
+        errorMessage = "電子郵件格式不正確";
+      } else if (err.code === "auth/invalid-credential") {
+        errorMessage = "帳號或密碼錯誤";
       } else if (err.message) {
         errorMessage = err.message;
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -52,14 +53,11 @@ export const LoginPage = () => {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           {/* Logo */}
-          <div className="flex justify-center mb-8">
-            <div className="flex items-center space-x-3">
-              <LayoutDashboard className="w-12 h-12 text-primary-600" />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Safe-Net</h1>
-                <p className="text-sm text-gray-500">社區守護者管理系統</p>
-              </div>
-            </div>
+          <div className="flex-col justify-center mb-8">
+            <img src={haloLogo} alt="halo_logo" className="admin_halo_logo" />
+            <p className="mt-2 text-center text-sm text-gray-600">
+              超級管理後台
+            </p>
           </div>
 
           {/* Form */}
@@ -74,12 +72,14 @@ export const LoginPage = () => {
               <label className="label">Email</label>
               <input
                 type="email"
-                {...register('email', { required: 'Email 為必填' })}
+                {...register("email", { required: "Email 為必填" })}
                 className="input"
                 placeholder="admin@safenet.com"
               />
               {errors.email && (
-                <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.email.message}
+                </p>
               )}
             </div>
 
@@ -87,12 +87,14 @@ export const LoginPage = () => {
               <label className="label">密碼</label>
               <input
                 type="password"
-                {...register('password', { required: '密碼為必填' })}
+                {...register("password", { required: "密碼為必填" })}
                 className="input"
                 placeholder="••••••••"
               />
               {errors.password && (
-                <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+                <p className="mt-1 text-sm text-red-600">
+                  {errors.password.message}
+                </p>
               )}
             </div>
 
@@ -101,7 +103,7 @@ export const LoginPage = () => {
               disabled={loading}
               className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? '登入中...' : '登入'}
+              {loading ? "登入中..." : "登入"}
             </button>
           </form>
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authService } from "../../services/authService";
+import haloLogo from "../../assets/halo_logo.png";
 
 export const LoginScreen = () => {
   const navigate = useNavigate();
@@ -46,12 +47,8 @@ export const LoginScreen = () => {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
-            Line OA 管理後台
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            請使用您的帳號密碼登入
-          </p>
+          <img src={haloLogo} alt="halo_logo" className="admin_halo_logo" />
+          <p className="mt-2 text-center text-sm text-gray-600">追蹤管理後台</p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>

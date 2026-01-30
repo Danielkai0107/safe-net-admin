@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Search, MapPin, Wifi, Edit, Trash2 } from "lucide-react";
+import { Plus, Search, MapPin, Wifi, Edit, Trash2, Wrench } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { gatewayService } from "../services/gatewayService";
 import { tenantService } from "../services/tenantService";
@@ -470,9 +470,19 @@ export const GatewaysPage = () => {
                   </td>
                   <td className="py-3 px-4">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${gateway.isActive ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${gateway.isActive ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}
                     >
-                      {gateway.isActive ? "運作中" : "已停用"}
+                      {gateway.isActive ? (
+                        <>
+                          <Wifi className="w-3 h-3" />
+                          運作中
+                        </>
+                      ) : (
+                        <>
+                          <Wrench className="w-3 h-3" />
+                          新建中
+                        </>
+                      )}
                     </span>
                   </td>
                   <td className="py-3 px-4">

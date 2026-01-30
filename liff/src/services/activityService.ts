@@ -30,7 +30,9 @@ interface ActivityStats {
 }
 
 // Cloud Functions 的 Base URL
-const API_BASE_URL = import.meta.env.VITE_FUNCTIONS_BASE_URL || "https://us-central1-safe-net-tw.cloudfunctions.net";
+const API_BASE_URL =
+  import.meta.env.VITE_FUNCTIONS_BASE_URL ||
+  "https://us-central1-safe-net-tw.cloudfunctions.net";
 
 /**
  * Subscribe to device activities (real-time updates)
@@ -56,7 +58,8 @@ export const subscribeActivities = (
 
         return {
           id: doc.id,
-          timestamp: timestamp?.toDate().toISOString() || new Date().toISOString(),
+          timestamp:
+            timestamp?.toDate().toISOString() || new Date().toISOString(),
           gatewayId: data.gatewayId || "",
           gatewayName: data.gatewayName || "",
           gatewayType: data.gatewayType || "",
@@ -135,14 +138,51 @@ export const getActivitiesByDate = async (
 };
 
 /**
+ * Merge consecutive activities with the same gateway
+ * When the same location appears consecutively, only keep the latest one
+ * If not consecutive (other locations in between), show both
+ */
+export const mergeConsecutiveActivities = (
+  activities: DeviceActivity[],
+): DeviceActivity[] => {
+  if (activities.length === 0) return [];
+
+  const merged: DeviceActivity[] = [];
+  let currentActivity = activities[0];
+
+  for (let i = 1; i < activities.length; i++) {
+    const nextActivity = activities[i];
+
+    // If same gateway as current, skip (keep the latest one which is currentActivity)
+    // Note: activities are sorted by timestamp desc, so first one is latest
+    if (nextActivity.gatewayId === currentActivity.gatewayId) {
+      // Same consecutive location, skip this one (keep the newer timestamp)
+      continue;
+    } else {
+      // Different location, add current to merged and move to next
+      merged.push(currentActivity);
+      currentActivity = nextActivity;
+    }
+  }
+
+  // Don't forget to add the last one
+  merged.push(currentActivity);
+
+  return merged;
+};
+
+/**
  * Group activities by date
  */
 export const groupActivitiesByDate = (
   activities: DeviceActivity[],
 ): Map<string, DeviceActivity[]> => {
+  // First merge consecutive same-location activities
+  const mergedActivities = mergeConsecutiveActivities(activities);
+
   const grouped = new Map<string, DeviceActivity[]>();
 
-  activities.forEach((activity) => {
+  mergedActivities.forEach((activity) => {
     const date = new Date(activity.timestamp);
     const dateKey = date.toLocaleDateString("zh-TW", {
       year: "numeric",

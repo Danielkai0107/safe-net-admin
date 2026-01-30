@@ -12,6 +12,7 @@ import {
   MapPin,
   Shield,
   Menu,
+  Store,
 } from "lucide-react";
 import { useState } from "react";
 import haloLogo from "../assets/halo_logo.png";
@@ -40,6 +41,7 @@ export const DashboardLayout = () => {
     { path: "/uuids", label: "UUID 管理", icon: Tag },
     { path: "/devices", label: "Beacon 管理", icon: Smartphone },
     { path: "/gateways", label: "GateWay 管理", icon: Radio },
+    { path: "/stores", label: "商店管理", icon: Store },
     { type: "divider" as const },
     { path: "/users", label: "系統人員管理", icon: UserCog },
     { path: "/saas-users", label: "SaaS 用戶管理", icon: Shield },

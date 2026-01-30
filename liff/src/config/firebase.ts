@@ -1,6 +1,6 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
+import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyArXubl605fS6mpgzni0gb1_3YZhgQGMxo",
@@ -9,7 +9,7 @@ const firebaseConfig = {
   storageBucket: "safe-net-tw.firebasestorage.app",
   messagingSenderId: "290555063879",
   appId: "1:290555063879:web:fac080454a35863dbd4b62",
-  measurementId: "G-ES7GQHHYS6"
+  measurementId: "G-ES7GQHHYS6",
 };
 
 // Initialize Firebase

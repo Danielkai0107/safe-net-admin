@@ -2,8 +2,8 @@ import * as admin from "firebase-admin";
 import { onRequest } from "firebase-functions/v2/https";
 import { Client, FlexMessage } from "@line/bot-sdk";
 
-// Type definitions
-interface BeaconData {
+// Type definitions - exported for use by minewGatewayAdapter
+export interface BeaconData {
   uuid: string;
   major: number;
   minor: number;
@@ -26,7 +26,8 @@ interface RequestPayload {
   beacons: BeaconData[];
 }
 
-interface GatewayInfo {
+// Exported for use by minewGatewayAdapter
+export interface GatewayInfo {
   id: string;
   tenantId: string | null;
   serialNumber: string;
@@ -39,6 +40,12 @@ interface GatewayInfo {
   longitude?: number;
   isActive: boolean;
   isAD?: boolean; // 行銷點標記
+  // 商家專用欄位
+  storeLogo?: string;
+  imageLink?: string;
+  activityTitle?: string;
+  activityContent?: string;
+  websiteLink?: string;
 }
 
 interface ProcessingResult {
@@ -52,6 +59,302 @@ interface ResponseData {
   updated: number;
   ignored: number;
   timestamp: number;
+}
+
+// ============================================
+// 去重機制 - 減少 Firebase 寫入成本
+// ============================================
+//
+// 最佳配置說明：
+// ┌─────────────────────┬────────┬──────────────────────────────────┐
+// │ 項目                │ 時間   │ 說明                             │
+// ├─────────────────────┼────────┼──────────────────────────────────┤
+// │ Device 狀態更新     │ 1 分鐘 │ lastSeen/rssi 更新頻率           │
+// │ Activity 記錄       │ 5 分鐘 │ 相同 gateway 的活動記錄間隔      │
+// │ 通知發送            │ 3 分鐘 │ 相同地點的通知發送間隔           │
+// └─────────────────────┴────────┴──────────────────────────────────┘
+//
+// Gateway 端建議設定上傳間隔為 10-30 秒
+// ============================================
+
+// 冷卻時間設定（毫秒）- 可依需求調整
+const DEVICE_UPDATE_COOLDOWN_MS = 60 * 1000; // 1 分鐘：即時查看位置不會太舊
+const ACTIVITY_RECORD_COOLDOWN_MS = 5 * 60 * 1000; // 5 分鐘：軌跡記錄足夠細緻
+const NOTIFICATION_COOLDOWN_MS = 3 * 60 * 1000; // 3 分鐘：避免通知轟炸
+
+// ============================================
+// Firebase Realtime Database 優化
+// ============================================
+// 使用 RTDB 存放頻繁更新的資料，降低 Firestore 讀取成本
+// RTDB 按資料傳輸量計費，而非按操作次數
+//
+// RTDB 資料結構：
+// {
+//   "deviceStatus": {
+//     "{deviceId}": {
+//       "lastSeen": timestamp,
+//       "lastRssi": number,
+//       "lastGatewayId": string,
+//       "lastLat": number,
+//       "lastLng": number
+//     }
+//   },
+//   "activityCooldowns": {
+//     "{deviceId}_{gatewayId}": timestamp
+//   },
+//   "notificationCooldowns": {
+//     "{key}": timestamp
+//   }
+// }
+// ============================================
+
+// 取得 Realtime Database 實例
+function getRtdb(): admin.database.Database {
+  return admin.database();
+}
+
+/**
+ * 從 RTDB 讀取 device 狀態（導出供其他模組使用）
+ */
+export async function getDeviceStatusFromRtdb(
+  deviceId: string,
+): Promise<{ lastSeen: number; lastRssi: number } | null> {
+  try {
+    const rtdb = getRtdb();
+    const snapshot = await rtdb.ref(`deviceStatus/${deviceId}`).get();
+    if (snapshot.exists()) {
+      return snapshot.val();
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error reading device status from RTDB:`, error);
+    return null;
+  }
+}
+
+/**
+ * 更新 device 狀態到 RTDB（即時位置資訊）
+ */
+async function updateDeviceStatusInRtdb(
+  deviceId: string,
+  data: {
+    lastSeen: number;
+    lastRssi: number;
+    lastGatewayId: string;
+    lastGatewayName?: string;
+    lastLat: number;
+    lastLng: number;
+    batteryLevel?: number;
+  },
+): Promise<void> {
+  try {
+    const rtdb = getRtdb();
+    await rtdb.ref(`deviceStatus/${deviceId}`).update(data);
+  } catch (error) {
+    console.error(`Error updating device status in RTDB:`, error);
+    throw error;
+  }
+}
+
+/**
+ * 從 RTDB 檢查 activity cooldown
+ */
+async function checkActivityCooldownFromRtdb(
+  deviceId: string,
+  gatewayId: string,
+  currentTimestamp: number,
+): Promise<boolean> {
+  try {
+    const rtdb = getRtdb();
+    const cooldownKey = `${deviceId}_${gatewayId}`;
+    const snapshot = await rtdb.ref(`activityCooldowns/${cooldownKey}`).get();
+
+    if (snapshot.exists()) {
+      const lastActivityTime = snapshot.val() as number;
+      const timeSinceLastActivity = currentTimestamp - lastActivityTime;
+      return timeSinceLastActivity >= ACTIVITY_RECORD_COOLDOWN_MS;
+    }
+    return true; // 沒有記錄，應該記錄
+  } catch (error) {
+    console.error(`Error checking activity cooldown from RTDB:`, error);
+    return true; // 發生錯誤時，允許記錄
+  }
+}
+
+/**
+ * 更新 activity cooldown 到 RTDB
+ */
+async function updateActivityCooldownInRtdb(
+  deviceId: string,
+  gatewayId: string,
+  timestamp: number,
+): Promise<void> {
+  try {
+    const rtdb = getRtdb();
+    const cooldownKey = `${deviceId}_${gatewayId}`;
+    await rtdb.ref(`activityCooldowns/${cooldownKey}`).set(timestamp);
+  } catch (error) {
+    console.error(`Error updating activity cooldown in RTDB:`, error);
+  }
+}
+
+/**
+ * 從 RTDB 檢查通知 cooldown
+ */
+async function checkNotificationCooldownFromRtdb(
+  cooldownKey: string,
+  currentTimestamp: number,
+): Promise<boolean> {
+  try {
+    const rtdb = getRtdb();
+    const snapshot = await rtdb
+      .ref(`notificationCooldowns/${cooldownKey}`)
+      .get();
+
+    if (snapshot.exists()) {
+      const lastSentTime = snapshot.val() as number;
+      const timeSinceLastSent = currentTimestamp - lastSentTime;
+      if (timeSinceLastSent < NOTIFICATION_COOLDOWN_MS) {
+        console.log(
+          `Skipping notification (RTDB cooldown: ${Math.round(timeSinceLastSent / 1000)}s / ${NOTIFICATION_COOLDOWN_MS / 1000}s)`,
+        );
+        return false; // 在冷卻期內，不應發送
+      }
+    }
+    return true; // 可以發送
+  } catch (error) {
+    console.error(`Error checking notification cooldown from RTDB:`, error);
+    return true; // 發生錯誤時，允許發送
+  }
+}
+
+/**
+ * 更新通知 cooldown 到 RTDB
+ */
+async function updateNotificationCooldownInRtdb(
+  cooldownKey: string,
+  timestamp: number,
+): Promise<void> {
+  try {
+    const rtdb = getRtdb();
+    await rtdb.ref(`notificationCooldowns/${cooldownKey}`).set(timestamp);
+  } catch (error) {
+    console.error(`Error updating notification cooldown in RTDB:`, error);
+  }
+}
+
+// 記憶體快取 - 用於減少 Firestore 讀取（保留作為二級快取）
+// Key: deviceId, Value: lastSeen timestamp
+const deviceLastSeenCache = new Map<string, number>();
+
+// Key: `${deviceId}_${gatewayId}`, Value: last activity timestamp
+const activityCache = new Map<string, number>();
+
+// 快取清理間隔（10 分鐘清理一次過期的快取項目）
+const CACHE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+let lastCacheCleanup = Date.now();
+
+/**
+ * 清理過期的快取項目
+ */
+function cleanupCacheIfNeeded(currentTimestamp: number): void {
+  if (currentTimestamp - lastCacheCleanup < CACHE_CLEANUP_INTERVAL_MS) {
+    return;
+  }
+
+  const cutoffTime = currentTimestamp - ACTIVITY_RECORD_COOLDOWN_MS * 2;
+
+  // 清理 deviceLastSeenCache
+  for (const [key, timestamp] of deviceLastSeenCache.entries()) {
+    if (timestamp < cutoffTime) {
+      deviceLastSeenCache.delete(key);
+    }
+  }
+
+  // 清理 activityCache
+  for (const [key, timestamp] of activityCache.entries()) {
+    if (timestamp < cutoffTime) {
+      activityCache.delete(key);
+    }
+  }
+
+  lastCacheCleanup = currentTimestamp;
+  console.log(
+    `Cache cleanup: deviceCache=${deviceLastSeenCache.size}, activityCache=${activityCache.size}`,
+  );
+}
+
+/**
+ * 檢查是否應該更新 device 狀態（去重）
+ * @returns true 如果應該更新，false 如果在冷卻期內
+ */
+function shouldUpdateDevice(
+  deviceId: string,
+  lastSeenFromDb: string | undefined,
+  currentTimestamp: number,
+): boolean {
+  // 先檢查記憶體快取
+  const cachedLastSeen = deviceLastSeenCache.get(deviceId);
+  if (cachedLastSeen) {
+    const timeSinceLastUpdate = currentTimestamp - cachedLastSeen;
+    if (timeSinceLastUpdate < DEVICE_UPDATE_COOLDOWN_MS) {
+      return false;
+    }
+  }
+
+  // 如果快取沒有，檢查 DB 的 lastSeen
+  if (lastSeenFromDb) {
+    const lastSeenTime = new Date(lastSeenFromDb).getTime();
+    const timeSinceLastSeen = currentTimestamp - lastSeenTime;
+    if (timeSinceLastSeen < DEVICE_UPDATE_COOLDOWN_MS) {
+      // 更新快取
+      deviceLastSeenCache.set(deviceId, lastSeenTime);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * 檢查是否應該記錄 activity（去重）
+ * @returns true 如果應該記錄，false 如果在冷卻期內
+ */
+function shouldRecordActivity(
+  deviceId: string,
+  gatewayId: string,
+  currentTimestamp: number,
+): boolean {
+  const cacheKey = `${deviceId}_${gatewayId}`;
+  const cachedLastActivity = activityCache.get(cacheKey);
+
+  if (cachedLastActivity) {
+    const timeSinceLastActivity = currentTimestamp - cachedLastActivity;
+    if (timeSinceLastActivity < ACTIVITY_RECORD_COOLDOWN_MS) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * 更新 activity 快取
+ */
+function updateActivityCache(
+  deviceId: string,
+  gatewayId: string,
+  timestamp: number,
+): void {
+  const cacheKey = `${deviceId}_${gatewayId}`;
+  activityCache.set(cacheKey, timestamp);
+}
+
+/**
+ * 更新 device lastSeen 快取
+ */
+function updateDeviceCache(deviceId: string, timestamp: number): void {
+  deviceLastSeenCache.set(deviceId, timestamp);
 }
 
 /**
@@ -527,6 +830,7 @@ async function sendFirstActivityNotification(
             {
               type: "button",
               style: "primary",
+              height: "sm",
               action: {
                 type: "uri",
                 label: "查看地圖",
@@ -724,6 +1028,7 @@ async function sendTenantNotificationPointAlert(
             {
               type: "button",
               style: "primary",
+              height: "sm",
               action: {
                 type: "uri",
                 label: "查看地圖",
@@ -973,26 +1278,15 @@ async function handleElderNotification(
       return { triggered: false, type: null };
     }
 
-    // 5. 檢查冷卻時間（3 分鐘內不重複發送）
+    // 5. 檢查冷卻時間（使用 RTDB，按資料量計費更便宜）
     const cooldownKey = `elder_${elderId}_gateway_${gateway.id}`;
-    const cooldownDoc = await db
-      .collection("notification_cooldowns")
-      .doc(cooldownKey)
-      .get();
+    const canSendNotification = await checkNotificationCooldownFromRtdb(
+      cooldownKey,
+      timestamp,
+    );
 
-    if (cooldownDoc.exists) {
-      const lastSentAt = cooldownDoc.data()?.lastSentAt;
-      if (lastSentAt) {
-        const timeSinceLastSent = timestamp - lastSentAt.toMillis();
-        const cooldownPeriod = 3 * 60 * 1000; // 3 分鐘
-
-        if (timeSinceLastSent < cooldownPeriod) {
-          console.log(
-            `Skipping notification (cooldown: ${Math.round(timeSinceLastSent / 1000)}s / 180s)`,
-          );
-          return { triggered: false, type: null };
-        }
-      }
+    if (!canSendNotification) {
+      return { triggered: false, type: null };
     }
 
     console.log(
@@ -1019,21 +1313,11 @@ async function handleElderNotification(
       db,
     );
 
-    // 7. 記錄冷卻時間
-    await db
-      .collection("notification_cooldowns")
-      .doc(cooldownKey)
-      .set({
-        elderId: elderId,
-        gatewayId: gateway.id,
-        tenantId: tenantId,
-        buType: "group",
-        lastSentAt: admin.firestore.Timestamp.fromMillis(timestamp),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+    // 7. 記錄冷卻時間（使用 RTDB）
+    await updateNotificationCooldownInRtdb(cooldownKey, timestamp);
 
     console.log(
-      `Updated cooldown for elder ${elderId} at gateway ${gateway.id}`,
+      `Updated cooldown (RTDB) for elder ${elderId} at gateway ${gateway.id}`,
     );
 
     return {
@@ -1116,7 +1400,9 @@ async function handleMapUserNotification(
       if (inheritedIds.includes(gateway.id)) {
         isNotificationPoint = true;
         notificationPointName = gateway.name || "通知點";
-        console.log(`Gateway ${gateway.id} is in inherited notification points`);
+        console.log(
+          `Gateway ${gateway.id} is in inherited notification points`,
+        );
       }
     }
 
@@ -1137,7 +1423,9 @@ async function handleMapUserNotification(
         notificationPointName = notifPointData.name || gateway.name || "通知點";
         notificationMessage = notifPointData.notificationMessage || "";
         notificationPointId = notifPoint.id;
-        console.log(`Found legacy notification point: ${notificationPointName}`);
+        console.log(
+          `Found legacy notification point: ${notificationPointName}`,
+        );
       }
     }
 
@@ -1173,8 +1461,7 @@ async function handleMapUserNotification(
     if (fcmToken) {
       try {
         const finalNotificationMessage =
-          notificationMessage ||
-          `您的設備已經過 ${notificationPointName}`;
+          notificationMessage || `您的設備已經過 ${notificationPointName}`;
 
         await admin.messaging().send({
           token: fcmToken,
@@ -1190,7 +1477,7 @@ async function handleMapUserNotification(
             notificationPointId: notificationPointId,
             latitude: lat.toString(),
             longitude: lng.toString(),
-            tokenSource: tokenSource,  // 記錄 token 來源
+            tokenSource: tokenSource, // 記錄 token 來源
           },
           android: {
             priority: "high",
@@ -1315,9 +1602,7 @@ async function handleLineUserNotification(
   try {
     // Skip notifications for OBSERVE_ZONE and INACTIVE gateways
     if (gateway.type === "OBSERVE_ZONE" || gateway.type === "INACTIVE") {
-      console.log(
-        `Skipping LINE notification for ${gateway.type} gateway`,
-      );
+      console.log(`Skipping LINE notification for ${gateway.type} gateway`);
       return { triggered: false, type: null };
     }
 
@@ -1333,7 +1618,9 @@ async function handleLineUserNotification(
     // 1. 從 device.tags 取得 tenantId
     const tags = (deviceData.tags as string[]) || [];
     if (tags.length === 0) {
-      console.log(`Device ${deviceId} has no tenant tags, skipping notification`);
+      console.log(
+        `Device ${deviceId} has no tenant tags, skipping notification`,
+      );
       return { triggered: false, type: null };
     }
 
@@ -1378,7 +1665,9 @@ async function handleLineUserNotification(
         return { triggered: false, type: null };
       }
 
-      console.log(`Gateway ${gateway.id} is in notification points, proceeding`);
+      console.log(
+        `Gateway ${gateway.id} is in notification points, proceeding`,
+      );
     } else {
       // 其他 BU_type 或未設定，LINE_USER 設備不處理
       console.log(
@@ -1387,26 +1676,15 @@ async function handleLineUserNotification(
       return { triggered: false, type: null };
     }
 
-    // 4. 檢查 3 分鐘冷卻時間
+    // 4. 檢查冷卻時間（使用 RTDB，按資料量計費更便宜）
     const cooldownKey = `device_${deviceId}_gateway_${gateway.id}`;
-    const cooldownDoc = await db
-      .collection("notification_cooldowns")
-      .doc(cooldownKey)
-      .get();
+    const canSendNotification = await checkNotificationCooldownFromRtdb(
+      cooldownKey,
+      timestamp,
+    );
 
-    if (cooldownDoc.exists) {
-      const lastSentAt = cooldownDoc.data()?.lastSentAt;
-      if (lastSentAt) {
-        const timeSinceLastSent = timestamp - lastSentAt.toMillis();
-        const cooldownPeriod = 3 * 60 * 1000; // 3 分鐘
-
-        if (timeSinceLastSent < cooldownPeriod) {
-          console.log(
-            `Skipping notification (cooldown: ${Math.round(timeSinceLastSent / 1000)}s / 180s)`,
-          );
-          return { triggered: false, type: null };
-        }
-      }
+    if (!canSendNotification) {
+      return { triggered: false, type: null };
     }
 
     // 5. 獲取 LINE User ID
@@ -1426,29 +1704,26 @@ async function handleLineUserNotification(
 
     try {
       await sendNotificationPointAlert(lineUserId, channelAccessToken, {
-        gatewayName: gateway.name || "通知點",
+        gatewayName: gateway.location || gateway.name || "通知點",
         deviceNickname: deviceData?.mapUserNickname || undefined,
         latitude: lat,
         longitude: lng,
         timestamp: new Date(timestamp).toISOString(),
+        // 商家相關資訊
+        isAD: gateway.isAD,
+        storeLogo: gateway.storeLogo,
+        imageLink: gateway.imageLink,
+        activityTitle: gateway.activityTitle,
+        activityContent: gateway.activityContent,
+        websiteLink: gateway.websiteLink,
       });
 
       console.log(
         `✓ Sent LINE notification to ${lineUserId} via tenant ${tenantId} (BU_type=${buType})`,
       );
 
-      // 7. 記錄冷卻時間
-      await db
-        .collection("notification_cooldowns")
-        .doc(cooldownKey)
-        .set({
-          deviceId: deviceId,
-          gatewayId: gateway.id,
-          tenantId: tenantId,
-          buType: buType,
-          lastSentAt: admin.firestore.Timestamp.fromMillis(timestamp),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+      // 7. 記錄冷卻時間（使用 RTDB）
+      await updateNotificationCooldownInRtdb(cooldownKey, timestamp);
 
       // 8. Create alert record
       const alertData = {
@@ -1496,8 +1771,9 @@ async function handleLineUserNotification(
 
 /**
  * Process a single beacon - UNIFIED LOGIC
+ * Exported for use by minewGatewayAdapter
  */
-async function processBeacon(
+export async function processBeacon(
   beacon: BeaconData,
   gateway: GatewayInfo,
   uploadedLat: number,
@@ -1537,21 +1813,57 @@ async function processBeacon(
     const device = deviceDoc.data();
     const deviceId = deviceDoc.id;
 
+    // 清理過期快取
+    cleanupCacheIfNeeded(timestamp);
+
     // 2. Update device status
-    const deviceUpdateData: any = {
-      lastSeen: new Date(timestamp).toISOString(),
+    // 使用 RTDB 存放即時狀態（按資料量計費，非常便宜）
+    // Firestore 只在需要時更新（有去重）
+
+    // 2a. 更新 RTDB（每次都更新，因為 RTDB 按資料量計費很便宜）
+    const rtdbStatusData: any = {
+      lastSeen: timestamp,
       lastRssi: beacon.rssi,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastGatewayId: gateway.id,
+      lastGatewayName: gateway.name || "",
+      lastLat: lat,
+      lastLng: lng,
     };
 
     if (beacon.batteryLevel !== undefined && beacon.batteryLevel !== null) {
-      deviceUpdateData.batteryLevel = beacon.batteryLevel;
+      rtdbStatusData.batteryLevel = beacon.batteryLevel;
     }
 
-    await deviceDoc.ref.update(deviceUpdateData);
-    console.log(
-      `Updated device ${deviceId} - batteryLevel: ${beacon.batteryLevel ?? "N/A"}, lastSeen: ${new Date(timestamp).toISOString()}`,
+    await updateDeviceStatusInRtdb(deviceId, rtdbStatusData);
+
+    // 2b. 檢查是否需要更新 Firestore（1 分鐘內不重複更新，減少寫入成本）
+    const needsFirestoreUpdate = shouldUpdateDevice(
+      deviceId,
+      device.lastSeen,
+      timestamp,
     );
+
+    if (needsFirestoreUpdate) {
+      const deviceUpdateData: any = {
+        lastSeen: new Date(timestamp).toISOString(),
+        lastRssi: beacon.rssi,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (beacon.batteryLevel !== undefined && beacon.batteryLevel !== null) {
+        deviceUpdateData.batteryLevel = beacon.batteryLevel;
+      }
+
+      await deviceDoc.ref.update(deviceUpdateData);
+      updateDeviceCache(deviceId, timestamp);
+      console.log(
+        `Updated device ${deviceId} in Firestore - batteryLevel: ${beacon.batteryLevel ?? "N/A"}`,
+      );
+    } else {
+      console.log(
+        `Updated device ${deviceId} in RTDB only (Firestore within ${DEVICE_UPDATE_COOLDOWN_MS / 1000}s cooldown)`,
+      );
+    }
 
     // 3. Check if this is first activity today for elder
     let isFirstActivityToday = false;
@@ -1592,18 +1904,47 @@ async function processBeacon(
       }
     }
 
-    // 6. Record activity to device subcollection (unified) - 再記錄活動（包含通知資訊）
-    await recordDeviceActivity(
+    // 6. Record activity to device subcollection (with deduplication)
+    // 使用 RTDB 檢查 cooldown（按資料量計費，非常便宜）
+    // 先檢查記憶體快取，再檢查 RTDB
+    let needsActivityRecord = shouldRecordActivity(
       deviceId,
-      device,
-      beacon,
-      gateway,
-      lat,
-      lng,
+      gateway.id,
       timestamp,
-      notificationResult,
-      db,
     );
+
+    // 如果記憶體快取沒有，再從 RTDB 確認
+    if (needsActivityRecord) {
+      needsActivityRecord = await checkActivityCooldownFromRtdb(
+        deviceId,
+        gateway.id,
+        timestamp,
+      );
+    }
+
+    if (needsActivityRecord) {
+      await recordDeviceActivity(
+        deviceId,
+        device,
+        beacon,
+        gateway,
+        lat,
+        lng,
+        timestamp,
+        notificationResult,
+        db,
+      );
+      // 同時更新記憶體快取和 RTDB
+      updateActivityCache(deviceId, gateway.id, timestamp);
+      await updateActivityCooldownInRtdb(deviceId, gateway.id, timestamp);
+      console.log(
+        `Recorded activity for device ${deviceId} at gateway ${gateway.id}`,
+      );
+    } else {
+      console.log(
+        `Skipped activity record for ${deviceId} at gateway ${gateway.id} (within ${ACTIVITY_RECORD_COOLDOWN_MS / 1000}s cooldown)`,
+      );
+    }
 
     return { status: "updated", beaconId: deviceId };
   } catch (error) {

@@ -1,21 +1,23 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { TenantsPage } from './pages/TenantsPage';
-import { UsersPage } from './pages/UsersPage';
-import { SaasUsersPage } from './pages/SaasUsersPage';
-import { MapAppUsersPage } from './pages/MapAppUsersPage';
-import { MapAppUserDetailPage } from './pages/MapAppUserDetailPage';
-import { EldersPage } from './pages/EldersPage';
-import { ElderDetailPage } from './pages/ElderDetailPage';
-import { DevicesPage } from './pages/DevicesPage';
-import { DeviceDetailPage } from './pages/DeviceDetailPage';
-import { UUIDsPage } from './pages/UUIDsPage';
-import { GatewaysPage } from './pages/GatewaysPage';
-import { DashboardLayout } from './layouts/DashboardLayout';
-import { ProtectedRoute } from './components/ProtectedRoute';
-import { useAuthStore } from './store/authStore';
+import { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { LoginPage } from "./pages/LoginPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { TenantsPage } from "./pages/TenantsPage";
+import { UsersPage } from "./pages/UsersPage";
+import { SaasUsersPage } from "./pages/SaasUsersPage";
+import { MapAppUsersPage } from "./pages/MapAppUsersPage";
+import { MapAppUserDetailPage } from "./pages/MapAppUserDetailPage";
+import { EldersPage } from "./pages/EldersPage";
+import { ElderDetailPage } from "./pages/ElderDetailPage";
+import { DevicesPage } from "./pages/DevicesPage";
+import { DeviceDetailPage } from "./pages/DeviceDetailPage";
+import { UUIDsPage } from "./pages/UUIDsPage";
+import { GatewaysPage } from "./pages/GatewaysPage";
+import { StoresPage } from "./pages/StoresPage";
+import { StoreDetailPage } from "./pages/StoreDetailPage";
+import { DashboardLayout } from "./layouts/DashboardLayout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { useAuthStore } from "./store/authStore";
 
 function App() {
   const initialize = useAuthStore((state) => state.initialize);
@@ -41,7 +43,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        
+
         <Route
           path="/"
           element={
@@ -63,6 +65,8 @@ function App() {
           <Route path="devices/:id" element={<DeviceDetailPage />} />
           <Route path="uuids" element={<UUIDsPage />} />
           <Route path="gateways" element={<GatewaysPage />} />
+          <Route path="stores" element={<StoresPage />} />
+          <Route path="stores/:id" element={<StoreDetailPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

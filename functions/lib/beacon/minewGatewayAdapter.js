@@ -36,22 +36,23 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.minewGateway = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const receiveBeaconData_1 = require("./receiveBeaconData");
 /**
  * Log error to Firestore error_logs collection
  */
 async function logError(functionName, errorMessage, errorStack, payload) {
     try {
         const db = admin.firestore();
-        await db.collection('error_logs').add({
+        await db.collection("error_logs").add({
             function_name: functionName,
             error_message: errorMessage,
-            error_stack: errorStack || 'No stack trace available',
+            error_stack: errorStack || "No stack trace available",
             payload: payload,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
     }
     catch (logError) {
-        console.error('Failed to log error to Firestore:', logError);
+        console.error("Failed to log error to Firestore:", logError);
     }
 }
 /**
@@ -74,7 +75,7 @@ function parseIBeaconFromRawData(rawData) {
     // 4C00 = Apple Company ID (little endian)
     // 02 = iBeacon type
     // 15 = length (21 bytes = 0x15)
-    const iBeaconMarker = '4C000215';
+    const iBeaconMarker = "4C000215";
     const markerIndex = data.indexOf(iBeaconMarker);
     if (markerIndex === -1) {
         return null;
@@ -111,7 +112,7 @@ function parseIBeaconFromRawData(rawData) {
         };
     }
     catch (error) {
-        console.error('Error parsing iBeacon data:', error);
+        console.error("Error parsing iBeacon data:", error);
         return null;
     }
 }
@@ -134,13 +135,13 @@ function parseBatteryFromRawData(_rawData) {
 async function getAllowedUuids(db) {
     try {
         const uuidsQuery = await db
-            .collection('uuids')
-            .where('isActive', '==', true)
+            .collection("uuids")
+            .where("isActive", "==", true)
             .get();
         const allowedUuids = new Set();
         for (const doc of uuidsQuery.docs) {
             const data = doc.data();
-            if (data.uuid && typeof data.uuid === 'string') {
+            if (data.uuid && typeof data.uuid === "string") {
                 // Normalize UUID to uppercase for consistent matching
                 allowedUuids.add(data.uuid.toUpperCase());
             }
@@ -149,7 +150,7 @@ async function getAllowedUuids(db) {
         return allowedUuids;
     }
     catch (error) {
-        console.error('Error fetching allowed UUIDs:', error);
+        console.error("Error fetching allowed UUIDs:", error);
         throw error;
     }
 }
@@ -159,12 +160,12 @@ async function getAllowedUuids(db) {
 async function getGatewayByMac(macAddress, db) {
     try {
         // Normalize MAC address (remove colons, uppercase)
-        const normalizedMac = macAddress.replace(/:/g, '').toUpperCase();
+        const normalizedMac = macAddress.replace(/:/g, "").toUpperCase();
         // Try to find gateway by macAddress
         const gatewayQuery = await db
-            .collection('gateways')
-            .where('macAddress', '==', normalizedMac)
-            .where('isActive', '==', true)
+            .collection("gateways")
+            .where("macAddress", "==", normalizedMac)
+            .where("isActive", "==", true)
             .limit(1)
             .get();
         if (gatewayQuery.empty) {
@@ -174,69 +175,52 @@ async function getGatewayByMac(macAddress, db) {
         return Object.assign({ id: gatewayDoc.id }, gatewayDoc.data());
     }
     catch (error) {
-        console.error('Error querying gateway:', error);
+        console.error("Error querying gateway:", error);
         throw error;
     }
 }
 /**
- * Process a single beacon and update device status
+ * Get or auto-register gateway
+ * If gateway not found, create a new one automatically
  */
-async function processBeaconData(beacon, rssi, gateway, timestamp, db) {
-    var _a, _b;
-    // Normalize UUID to lowercase for case-insensitive matching
-    const normalizedUuid = beacon.uuid.toLowerCase();
-    try {
-        // Find device by UUID + Major + Minor
-        // Note: UUID is normalized to lowercase for case-insensitive matching
-        const deviceQuery = await db
-            .collection('devices')
-            .where('uuid', '==', normalizedUuid)
-            .where('major', '==', beacon.major)
-            .where('minor', '==', beacon.minor)
-            .where('isActive', '==', true)
-            .limit(1)
-            .get();
-        if (deviceQuery.empty) {
-            console.log(`No active device found for UUID ${normalizedUuid}, Major ${beacon.major}, Minor ${beacon.minor}`);
-            return { status: 'ignored' };
-        }
-        const deviceDoc = deviceQuery.docs[0];
-        const deviceId = deviceDoc.id;
-        // Update device status
-        const updateData = {
-            lastSeen: new Date(timestamp).toISOString(),
-            lastRssi: rssi,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-        if (beacon.batteryLevel !== undefined) {
-            updateData.batteryLevel = beacon.batteryLevel;
-        }
-        await deviceDoc.ref.update(updateData);
-        // Record activity
-        const lat = (_a = gateway.latitude) !== null && _a !== void 0 ? _a : 0;
-        const lng = (_b = gateway.longitude) !== null && _b !== void 0 ? _b : 0;
-        await db.collection('devices').doc(deviceId)
-            .collection('activities')
-            .add({
-            timestamp: admin.firestore.Timestamp.fromMillis(timestamp),
-            gatewayId: gateway.id,
-            gatewayName: gateway.name,
-            gatewayType: gateway.type,
-            latitude: lat,
-            longitude: lng,
-            rssi: rssi,
-            triggeredNotification: false,
-            notificationType: null,
-            notificationDetails: null,
-        });
-        console.log(`Updated device ${deviceId} via Minew adapter`);
-        return { status: 'updated', deviceId };
+async function getOrCreateGateway(macAddress, db) {
+    // First try to find existing gateway
+    const existing = await getGatewayByMac(macAddress, db);
+    if (existing) {
+        return existing;
     }
-    catch (error) {
-        console.error(`Error processing beacon:`, error);
-        throw error;
-    }
+    // Normalize MAC address
+    const normalizedMac = macAddress.replace(/:/g, "").toUpperCase();
+    console.log(`Auto-registering new Minew gateway: ${normalizedMac}`);
+    // Auto-create gateway
+    const newGateway = {
+        macAddress: normalizedMac,
+        serialNumber: normalizedMac,
+        name: `Minew-${normalizedMac.substring(normalizedMac.length - 6)}`,
+        location: `Auto-registered at ${new Date().toISOString()}`,
+        type: "SAFE_ZONE",
+        tenantId: null,
+        isActive: true,
+        isAD: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const docRef = await db.collection("gateways").add(newGateway);
+    console.log(`Gateway auto-registered with ID: ${docRef.id}`);
+    return {
+        id: docRef.id,
+        macAddress: normalizedMac,
+        serialNumber: normalizedMac,
+        name: newGateway.name,
+        location: newGateway.location,
+        type: newGateway.type,
+        tenantId: null,
+        isActive: true,
+        isAD: false,
+    };
 }
+// processBeaconData removed - now using imported processBeacon from receiveBeaconData
+// which includes full notification logic (ELDER, MAP_USER, LINE_USER)
 /**
  * Extract gateway MAC from request headers
  * Minew gateways typically send their MAC in the headers
@@ -245,21 +229,21 @@ function extractGatewayMac(req) {
     var _a;
     // Try common header names used by Minew gateways
     const possibleHeaders = [
-        'x-gateway-mac',
-        'gateway-mac',
-        'x-minew-gateway',
-        'mac',
-        'device-mac',
+        "x-gateway-mac",
+        "gateway-mac",
+        "x-minew-gateway",
+        "mac",
+        "device-mac",
     ];
     for (const header of possibleHeaders) {
         const value = req.headers[header];
-        if (value && typeof value === 'string') {
-            return value.replace(/:/g, '').toUpperCase();
+        if (value && typeof value === "string") {
+            return value.replace(/:/g, "").toUpperCase();
         }
     }
     // Try to get from query parameter
     if ((_a = req.query) === null || _a === void 0 ? void 0 : _a.gateway_mac) {
-        return String(req.query.gateway_mac).replace(/:/g, '').toUpperCase();
+        return String(req.query.gateway_mac).replace(/:/g, "").toUpperCase();
     }
     return null;
 }
@@ -277,15 +261,15 @@ function extractGatewayMac(req) {
 exports.minewGateway = (0, https_1.onRequest)({
     cors: true,
     timeoutSeconds: 60,
-    memory: '256MiB',
+    memory: "256MiB",
 }, async (req, res) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     const startTime = Date.now();
     // Only accept POST requests
-    if (req.method !== 'POST') {
+    if (req.method !== "POST") {
         res.status(405).json({
             success: false,
-            error: 'Method not allowed. Use POST.',
+            error: "Method not allowed. Use POST.",
         });
         return;
     }
@@ -295,59 +279,57 @@ exports.minewGateway = (0, https_1.onRequest)({
         let gatewayMac = extractGatewayMac(req);
         // If not in headers, try to get from request body wrapper
         if (!gatewayMac && ((_a = req.body) === null || _a === void 0 ? void 0 : _a.gatewayMac)) {
-            gatewayMac = String(req.body.gatewayMac).replace(/:/g, '').toUpperCase();
+            gatewayMac = String(req.body.gatewayMac)
+                .replace(/:/g, "")
+                .toUpperCase();
         }
         if (!gatewayMac) {
-            console.warn('No gateway MAC provided');
+            console.warn("No gateway MAC provided");
             res.status(400).json({
                 success: false,
-                error: 'Missing gateway MAC address. Please set gateway_mac query parameter or x-gateway-mac header.',
+                error: "Missing gateway MAC address. Please set gateway_mac query parameter or x-gateway-mac header.",
             });
             return;
         }
         console.log(`Received data from gateway: ${gatewayMac}`);
-        // Step 2: Get gateway info from database
-        const gateway = await getGatewayByMac(gatewayMac, db);
-        if (!gateway) {
-            console.warn(`Gateway not found: ${gatewayMac}`);
-            res.status(404).json({
-                success: false,
-                error: `Gateway not registered: ${gatewayMac}. Please register the gateway first.`,
-            });
-            return;
-        }
-        console.log(`Gateway found: ${gateway.name} (${gateway.type}) - lat: ${gateway.latitude}, lng: ${gateway.longitude}`);
+        // Step 2: Get or auto-register gateway
+        const gateway = await getOrCreateGateway(gatewayMac, db);
+        console.log(`Gateway: ${gateway.name} (${gateway.type}) - lat: ${(_b = gateway.latitude) !== null && _b !== void 0 ? _b : "N/A"}, lng: ${(_c = gateway.longitude) !== null && _c !== void 0 ? _c : "N/A"}`);
         // Step 3: Parse request body
         let beaconItems = [];
         if (Array.isArray(req.body)) {
             // Direct array format
             beaconItems = req.body;
         }
-        else if (((_b = req.body) === null || _b === void 0 ? void 0 : _b.data) && Array.isArray(req.body.data)) {
+        else if (((_d = req.body) === null || _d === void 0 ? void 0 : _d.data) && Array.isArray(req.body.data)) {
             // Wrapped format: { data: [...] }
             beaconItems = req.body.data;
         }
-        else if (typeof req.body === 'object' && req.body !== null) {
+        else if (typeof req.body === "object" && req.body !== null) {
             // Single item format
             beaconItems = [req.body];
         }
         if (beaconItems.length === 0) {
-            console.log('No beacon data received');
+            console.log("No beacon data received");
             res.status(200).json({
                 success: true,
-                message: 'No beacon data to process',
+                message: "No beacon data to process",
                 processed: 0,
             });
             return;
         }
         console.log(`Processing ${beaconItems.length} beacon items`);
+        // Log first item structure for debugging
+        if (beaconItems.length > 0) {
+            console.log(`[DEBUG] First beacon item: ${JSON.stringify(beaconItems[0])}`);
+        }
         // Step 4: Load allowed UUIDs from beacon_uuids collection
         const allowedUuids = await getAllowedUuids(db);
         if (allowedUuids.size === 0) {
-            console.warn('No allowed UUIDs found in beacon_uuids collection');
+            console.warn("No allowed UUIDs found in beacon_uuids collection");
             res.status(200).json({
                 success: true,
-                message: 'No allowed UUIDs configured. Please add UUIDs to beacon_uuids collection.',
+                message: "No allowed UUIDs configured. Please add UUIDs to beacon_uuids collection.",
                 processed: 0,
                 skipped: beaconItems.length,
             });
@@ -359,39 +341,82 @@ exports.minewGateway = (0, https_1.onRequest)({
         let skippedCount = 0;
         let filteredCount = 0;
         for (const item of beaconItems) {
-            // Skip if no rawData
-            if (!item.rawData) {
-                results.push({
-                    mac: item.mac || 'unknown',
-                    status: 'skipped',
-                    reason: 'No rawData',
-                });
+            // Skip Gateway type (not a beacon)
+            if (item.type === "Gateway") {
+                console.log(`[DEBUG] MAC ${item.mac}: Gateway type, skipping`);
                 skippedCount++;
                 continue;
             }
-            // Parse iBeacon data from rawData
-            const parsedBeacon = parseIBeaconFromRawData(item.rawData);
+            // Log raw item for debugging
+            // Get raw data (支援 rawData 或 raw 欄位)
+            const rawDataField = item.rawData || item.raw || null;
+            // Get UUID (支援多種欄位名)
+            const uuidField = item.uuid || item.ibeaconUuid || item.iBeaconUuid || null;
+            const majorField = (_g = (_f = (_e = item.major) !== null && _e !== void 0 ? _e : item.ibeaconMajor) !== null && _f !== void 0 ? _f : item.iBeaconMajor) !== null && _g !== void 0 ? _g : null;
+            const minorField = (_k = (_j = (_h = item.minor) !== null && _h !== void 0 ? _h : item.ibeaconMinor) !== null && _j !== void 0 ? _j : item.iBeaconMinor) !== null && _k !== void 0 ? _k : null;
+            console.log(`[DEBUG] Processing: MAC=${item.mac}, type=${item.type}, uuid=${uuidField || "N/A"}, major=${majorField !== null && majorField !== void 0 ? majorField : "N/A"}, minor=${minorField !== null && minorField !== void 0 ? minorField : "N/A"}, raw=${rawDataField ? rawDataField.substring(0, 30) + "..." : "N/A"}`);
+            // Try to get iBeacon data - support both JSON-SHORT and JSON-LONG formats
+            let parsedBeacon = null;
+            // Method 1: JSON-SHORT format (直接有 uuid, major, minor 欄位)
+            if (uuidField && majorField !== null && minorField !== null) {
+                parsedBeacon = {
+                    uuid: uuidField,
+                    major: Number(majorField),
+                    minor: Number(minorField),
+                    txPower: (_l = item.txPower) !== null && _l !== void 0 ? _l : -59,
+                    batteryLevel: item.battery,
+                };
+                console.log(`[DEBUG] MAC ${item.mac}: Using JSON-SHORT format`);
+            }
+            // Method 2: JSON-LONG format (從 rawData 或 raw 解析)
+            else if (rawDataField) {
+                parsedBeacon = parseIBeaconFromRawData(rawDataField);
+                if (parsedBeacon) {
+                    parsedBeacon.batteryLevel = parseBatteryFromRawData(rawDataField);
+                    console.log(`[DEBUG] MAC ${item.mac}: Using JSON-LONG format (parsed from raw)`);
+                }
+            }
+            // Skip if cannot parse iBeacon data
             if (!parsedBeacon) {
+                console.log(`[DEBUG] MAC ${item.mac}: Cannot parse iBeacon data. Available fields: ${Object.keys(item).join(", ")}`);
                 results.push({
-                    mac: item.mac || 'unknown',
-                    status: 'skipped',
-                    reason: 'Not an iBeacon or invalid rawData',
+                    mac: item.mac || "unknown",
+                    status: "skipped",
+                    reason: "Cannot parse iBeacon data",
                 });
                 skippedCount++;
                 continue;
             }
-            // Check if UUID is in the allowed list (beacon_uuids)
-            if (!allowedUuids.has(parsedBeacon.uuid.toUpperCase())) {
+            // Normalize UUID: remove dashes and convert to uppercase for comparison
+            const normalizeUuid = (uuid) => {
+                return uuid.replace(/-/g, "").toUpperCase();
+            };
+            // Format UUID with dashes: 8-4-4-4-12
+            const formatUuidWithDashes = (uuid) => {
+                const clean = uuid.replace(/-/g, "").toUpperCase();
+                if (clean.length !== 32)
+                    return uuid;
+                return `${clean.substring(0, 8)}-${clean.substring(8, 12)}-${clean.substring(12, 16)}-${clean.substring(16, 20)}-${clean.substring(20, 32)}`;
+            };
+            // Normalize the parsed UUID
+            const normalizedParsedUuid = normalizeUuid(parsedBeacon.uuid);
+            // Also store formatted version for later use
+            parsedBeacon.uuid = formatUuidWithDashes(parsedBeacon.uuid);
+            // Log parsed beacon info
+            console.log(`[DEBUG] MAC ${item.mac}: iBeacon - UUID: ${parsedBeacon.uuid}, Major: ${parsedBeacon.major}, Minor: ${parsedBeacon.minor}`);
+            // Check if UUID is in the allowed list (normalize both for comparison)
+            const normalizedAllowedUuids = new Set(Array.from(allowedUuids).map(normalizeUuid));
+            if (!normalizedAllowedUuids.has(normalizedParsedUuid)) {
+                console.log(`[DEBUG] UUID ${parsedBeacon.uuid} not in whitelist. Allowed: [${Array.from(allowedUuids).join(", ")}]`);
                 results.push({
-                    mac: item.mac || 'unknown',
-                    status: 'skipped',
+                    mac: item.mac || "unknown",
+                    status: "skipped",
                     reason: `UUID not in whitelist: ${parsedBeacon.uuid}`,
                 });
                 filteredCount++;
                 continue;
             }
-            // Add battery level if available
-            parsedBeacon.batteryLevel = parseBatteryFromRawData(item.rawData);
+            console.log(`[DEBUG] MAC ${item.mac}: UUID matched whitelist!`);
             // Parse timestamp
             let timestamp;
             if (item.timestamp) {
@@ -401,30 +426,38 @@ exports.minewGateway = (0, https_1.onRequest)({
             else {
                 timestamp = Date.now();
             }
-            // Process the beacon
+            // Process the beacon using unified processBeacon (includes notification logic)
             try {
-                const result = await processBeaconData(parsedBeacon, item.rssi || -100, gateway, timestamp, db);
-                if (result.status === 'updated') {
+                // Convert to BeaconData format for processBeacon
+                const beaconData = {
+                    uuid: parsedBeacon.uuid,
+                    major: parsedBeacon.major,
+                    minor: parsedBeacon.minor,
+                    rssi: item.rssi || -100,
+                    batteryLevel: parsedBeacon.batteryLevel,
+                };
+                const result = await (0, receiveBeaconData_1.processBeacon)(beaconData, gateway, (_m = gateway.latitude) !== null && _m !== void 0 ? _m : 0, (_o = gateway.longitude) !== null && _o !== void 0 ? _o : 0, timestamp, db);
+                if (result.status === "updated" || result.status === "created") {
                     results.push({
-                        mac: item.mac || 'unknown',
-                        status: 'processed',
+                        mac: item.mac || "unknown",
+                        status: "processed",
                     });
                     processedCount++;
                 }
                 else {
                     results.push({
-                        mac: item.mac || 'unknown',
-                        status: 'skipped',
-                        reason: 'Device not found',
+                        mac: item.mac || "unknown",
+                        status: "skipped",
+                        reason: "Device not found",
                     });
                     skippedCount++;
                 }
             }
             catch (error) {
                 results.push({
-                    mac: item.mac || 'unknown',
-                    status: 'error',
-                    reason: error instanceof Error ? error.message : 'Unknown error',
+                    mac: item.mac || "unknown",
+                    status: "error",
+                    reason: error instanceof Error ? error.message : "Unknown error",
                 });
             }
         }
@@ -445,11 +478,11 @@ exports.minewGateway = (0, https_1.onRequest)({
         });
     }
     catch (error) {
-        console.error('Unexpected error in minewGateway:', error);
-        await logError('minewGateway', error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined, req.body);
+        console.error("Unexpected error in minewGateway:", error);
+        await logError("minewGateway", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined, req.body);
         res.status(500).json({
             success: false,
-            error: 'Internal server error. Please check logs.',
+            error: "Internal server error. Please check logs.",
         });
     }
 });

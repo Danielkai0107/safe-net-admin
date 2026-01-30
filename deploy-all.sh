@@ -8,6 +8,7 @@ echo "1. Admin 管理後台"
 echo "2. LIFF 應用"
 echo "3. Community Portal"
 echo "4. Cloud Functions"
+echo "5. Realtime Database 規則"
 echo "========================================="
 echo ""
 
@@ -19,6 +20,8 @@ echo ""
 read -p "是否部署 Community Portal？ (y/n) " -n 1 -r DEPLOY_COMMUNITY
 echo ""
 read -p "是否部署 Cloud Functions？ (y/n) " -n 1 -r DEPLOY_FUNCTIONS
+echo ""
+read -p "是否部署 Realtime Database 規則？ (y/n) " -n 1 -r DEPLOY_DATABASE
 echo ""
 
 # 記錄失敗項目
@@ -135,6 +138,14 @@ if [[ $DEPLOY_FUNCTIONS =~ ^[Yy]$ ]]; then
   fi
 fi
 
+if [[ $DEPLOY_DATABASE =~ ^[Yy]$ ]]; then
+  if [ -z "$DEPLOY_TARGETS" ]; then
+    DEPLOY_TARGETS="database"
+  else
+    DEPLOY_TARGETS="$DEPLOY_TARGETS,database"
+  fi
+fi
+
 if [ -z "$DEPLOY_TARGETS" ]; then
   echo "沒有選擇要部署的項目"
   exit 0
@@ -162,6 +173,10 @@ if [ $? -eq 0 ]; then
   
   if [[ $DEPLOY_FUNCTIONS =~ ^[Yy]$ ]]; then
     echo "Cloud Functions: 已部署"
+  fi
+  
+  if [[ $DEPLOY_DATABASE =~ ^[Yy]$ ]]; then
+    echo "Realtime Database 規則: 已部署"
   fi
   
   echo "========================================="

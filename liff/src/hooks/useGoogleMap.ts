@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
 interface UseGoogleMapOptions {
   center: { lat: number; lng: number };
@@ -33,28 +33,30 @@ export const useGoogleMap = (options: UseGoogleMapOptions) => {
     const mapInstance = new google.maps.Map(mapRef.current, {
       center: options.center,
       zoom: options.zoom,
+      minZoom: 13, // 限制最小縮放，約區域範圍
+      maxZoom: 20,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
       zoomControl: false,
-      gestureHandling: 'greedy',
+      gestureHandling: "greedy",
       disableDefaultUI: true,
       styles: [
         {
           featureType: "poi",
           elementType: "labels",
-          stylers: [{ visibility: "off" }]
+          stylers: [{ visibility: "off" }],
         },
         {
           featureType: "poi.business",
-          stylers: [{ visibility: "off" }]
+          stylers: [{ visibility: "off" }],
         },
         {
           featureType: "transit",
           elementType: "labels.icon",
-          stylers: [{ visibility: "off" }]
-        }
-      ]
+          stylers: [{ visibility: "off" }],
+        },
+      ],
     });
 
     setMap(mapInstance);

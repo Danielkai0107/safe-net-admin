@@ -24,7 +24,7 @@ export interface Elder {
   id: string;
   tenantId: string;
   name: string;
-  gender?: 'MALE' | 'FEMALE' | 'OTHER';
+  gender?: "MALE" | "FEMALE" | "OTHER";
   birthDate?: string;
   age?: number;
   phone?: string;
@@ -62,24 +62,24 @@ export const ElderStatus = {
 export interface Device {
   id: string;
   // ✅ 核心識別欄位（用於 Beacon 識別）
-  uuid: string;           // 必填 - 服務識別碼（所有同公司設備統一）
-  major: number;          // 必填 - 群組編號（例如：社區/區域）
-  minor: number;          // 必填 - 設備編號（每張卡片唯一）
+  uuid: string; // 必填 - 服務識別碼（所有同公司設備統一）
+  major: number; // 必填 - 群組編號（例如：社區/區域）
+  minor: number; // 必填 - 設備編號（每張卡片唯一）
   // ⚠️ 輔助欄位
-  macAddress?: string;    // 選填 - Beacon MAC 會隨機變化，僅供參考
+  macAddress?: string; // 選填 - Beacon MAC 會隨機變化，僅供參考
   deviceName?: string;
   type: DeviceType;
   // 綁定狀態（新架構）
   bindingType: DeviceBindingType;
-  boundTo: string | null;           // elderId 或 mapAppUserId 或 lineUserDocId
+  boundTo: string | null; // elderId 或 mapAppUserId 或 lineUserDocId
   boundAt: string | null;
   // MAP_USER / LINE_USER 專屬資料
   mapUserNickname?: string | null;
   mapUserAge?: number | null;
-  mapUserGender?: 'MALE' | 'FEMALE' | 'OTHER' | null;
-  inheritedNotificationPointIds?: string[];  // Gateway IDs 陣列
+  mapUserGender?: "MALE" | "FEMALE" | "OTHER" | null;
+  inheritedNotificationPointIds?: string[]; // Gateway IDs 陣列
   // 標籤（取代 tenantId）
-  tags: string[];                   // 例如：["tenant_id_1", "tenant_id_2"]
+  tags: string[]; // 例如：["tenant_id_1", "tenant_id_2"]
   // 裝置狀態
   batteryLevel?: number;
   lastSeen?: string;
@@ -89,7 +89,12 @@ export interface Device {
 }
 
 // 裝置綁定類型
-export type DeviceBindingType = "ELDER" | "MAP_USER" | "LINE_USER" | "UNBOUND" | "ANONYMOUS";
+export type DeviceBindingType =
+  | "ELDER"
+  | "MAP_USER"
+  | "LINE_USER"
+  | "UNBOUND"
+  | "ANONYMOUS";
 
 export const DeviceBindingType = {
   ELDER: "ELDER",
@@ -112,8 +117,8 @@ export interface Gateway {
   id: string;
   tenantId: string;
   serialNumber: string;
-  macAddress?: string;     // MAC Address for commercial receivers
-  imei?: string;           // IMEI for mobile phones
+  macAddress?: string; // MAC Address for commercial receivers
+  imei?: string; // IMEI for mobile phones
   name: string;
   location?: string;
   type: GatewayType;
@@ -121,10 +126,21 @@ export interface Gateway {
   longitude?: number;
   deviceInfo?: any;
   isActive: boolean;
+  isAD?: boolean; // 是否為行銷點
+  storeLogo?: string; // 店家 Logo
+  imageLink?: string; // 店家圖片/Banner
+  activityTitle?: string; // 活動標題
+  activityContent?: string; // 活動內容
+  websiteLink?: string; // 官網連結
+  storePassword?: string; // 商家密碼
   tenant?: Tenant;
 }
 
-export type GatewayType = "SCHOOL_ZONE" | "SAFE_ZONE" | "OBSERVE_ZONE" | "INACTIVE";
+export type GatewayType =
+  | "SCHOOL_ZONE"
+  | "SAFE_ZONE"
+  | "OBSERVE_ZONE"
+  | "INACTIVE";
 
 export const GatewayType = {
   SCHOOL_ZONE: "SCHOOL_ZONE",
@@ -154,7 +170,7 @@ export interface Alert {
   // 警報分配相關
   assignedTo?: string;
   assignedAt?: string;
-  assignmentStatus?: 'PENDING' | 'ACCEPTED' | 'DECLINED';
+  assignmentStatus?: "PENDING" | "ACCEPTED" | "DECLINED";
   elder?: Elder;
   gateway?: Gateway;
   assignedMember?: AppUser;
@@ -213,14 +229,14 @@ export interface TenantMember {
   id: string;
   tenantId: string;
   appUserId: string;
-  role: 'MEMBER' | 'ADMIN';
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  role: "MEMBER" | "ADMIN";
+  status: "PENDING" | "APPROVED" | "REJECTED";
   requestedAt: string;
   processedAt?: string;
-  processedByType?: 'backend' | 'app';
+  processedByType?: "backend" | "app";
   rejectionReason?: string;
   appUser?: AppUser;
-  tenant?: Tenant;  // 關聯的社區資料
+  tenant?: Tenant; // 關聯的社區資料
 }
 
 // Activity
@@ -228,7 +244,7 @@ export interface Activity {
   id: string;
   elderId?: string;
   gatewayId?: string;
-  timestamp: any;  // Firestore Timestamp or Date
+  timestamp: any; // Firestore Timestamp or Date
   rssi?: number;
   latitude?: number;
   longitude?: number;
@@ -239,7 +255,7 @@ export interface Activity {
 // Map related types
 export interface MapMarker {
   id: string;
-  type: 'gateway' | 'activity';
+  type: "gateway" | "activity";
   position: {
     top: string;
     left: string;
